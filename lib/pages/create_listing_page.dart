@@ -110,7 +110,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
 
     try {
       // TODO: Implement image upload and get URL
-      final imageUrl = "placeholder_url"; // Replace with actual image upload
+      const imageUrl = 'placeholder_url'; // Replace with actual image upload
       final ownerAddress = await _walletService.getWalletAddress();
       
       final result = await _workflowService.startCreateItemWorkflow(

@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'services/wallet_service.dart';
+import 'services/chain_service.dart';
+import 'pages/settings_page.dart';
 import 'pages/listings_page.dart';
+import 'pages/create_listing_page.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => ChainService(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -160,6 +169,79 @@ class _WelcomePageState extends State<WelcomePage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class ListingsPage extends StatelessWidget {
+  const ListingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('SuperPull'),
+        actions: [
+          Consumer<ChainService>(
+            builder: (context, chainService, child) {
+              return DropdownButton<BlockchainType>(
+                value: chainService.selectedChain,
+                underline: Container(),
+                icon: const Icon(Icons.arrow_drop_down),
+                selectedItemBuilder: (BuildContext context) {
+                  return BlockchainType.values.map((BlockchainType chain) {
+                    return Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        chain.displayName,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    );
+                  }).toList();
+                },
+                items: BlockchainType.values.map((BlockchainType chain) {
+                  return DropdownMenuItem<BlockchainType>(
+                    value: chain,
+                    child: Text(chain.displayName),
+                  );
+                }).toList(),
+                onChanged: (BlockchainType? newValue) {
+                  if (newValue != null) {
+                    chainService.setSelectedChain(newValue);
+                  }
+                },
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsPage(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CreateListingPage(),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+      // ... rest of the ListingsPage implementation ...
     );
   }
 } 
