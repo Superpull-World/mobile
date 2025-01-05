@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/listing.dart';
+import '../theme/app_theme.dart';
 import 'create_listing_page.dart';
+import 'settings_page.dart';
 
 class ListingsPage extends StatelessWidget {
   const ListingsPage({super.key});
@@ -8,17 +10,21 @@ class ListingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'SuperPull',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.headlineMedium,
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
-              // TODO: Navigate to settings
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsPage(),
+                ),
+              );
             },
           ),
         ],
@@ -33,6 +39,8 @@ class ListingsPage extends StatelessWidget {
             ),
           );
         },
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: AppTheme.secondaryColor,
         icon: const Icon(Icons.add),
         label: const Text(
           'Create Listing',
@@ -59,16 +67,13 @@ class ListingsView extends StatelessWidget {
             Icon(
               Icons.shopping_bag_outlined,
               size: 64,
-              color: Theme.of(context).colorScheme.primary,
+              color: AppTheme.primaryColor,
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'No listings available yet.\nBe the first to create one!',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+              style: Theme.of(context).textTheme.bodyLarge,
             ),
           ],
         ),
@@ -107,10 +112,6 @@ class ListingCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      elevation: 2,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -121,12 +122,12 @@ class ListingCard extends StatelessWidget {
               fit: BoxFit.cover,
               errorBuilder: (context, error, stackTrace) {
                 return Container(
-                  color: theme.colorScheme.primary.withOpacity(0.1),
+                  color: AppTheme.primaryColor.withOpacity(0.1),
                   child: Center(
                     child: Icon(
                       Icons.image_not_supported,
                       size: 48,
-                      color: theme.colorScheme.secondary,
+                      color: AppTheme.primaryColor,
                     ),
                   ),
                 );
@@ -144,10 +145,7 @@ class ListingCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         listing.name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: theme.textTheme.headlineMedium,
                       ),
                     ),
                     Container(
@@ -156,7 +154,7 @@ class ListingCard extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
+                        color: AppTheme.primaryColor,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -164,7 +162,7 @@ class ListingCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.onPrimary,
+                          color: AppTheme.secondaryColor,
                         ),
                       ),
                     ),
@@ -173,9 +171,7 @@ class ListingCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   'by ${listing.designerName}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: theme.colorScheme.secondary.withOpacity(0.6),
+                  style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -184,7 +180,7 @@ class ListingCard extends StatelessWidget {
                   listing.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 16),
+                  style: theme.textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 16),
                 Row(
@@ -196,7 +192,7 @@ class ListingCard extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withOpacity(0.1),
+                        color: AppTheme.primaryColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -204,7 +200,7 @@ class ListingCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          color: theme.colorScheme.secondary,
+                          color: AppTheme.primaryColor,
                         ),
                       ),
                     ),
@@ -216,7 +212,7 @@ class ListingCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: listing.remainingTime.inDays < 2
                             ? Colors.red.withOpacity(0.1)
-                            : theme.colorScheme.primary.withOpacity(0.1),
+                            : AppTheme.primaryColor.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -226,7 +222,7 @@ class ListingCard extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                           color: listing.remainingTime.inDays < 2
                               ? Colors.red
-                              : theme.colorScheme.secondary,
+                              : AppTheme.primaryColor,
                         ),
                       ),
                     ),
