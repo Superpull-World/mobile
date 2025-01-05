@@ -660,129 +660,404 @@ class _ListingsViewState extends State<ListingsView> {
   }
 }
 
-class ListingCard extends StatelessWidget {
+class ListingCard extends StatefulWidget {
   final Listing listing;
 
   const ListingCard({super.key, required this.listing});
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  State<ListingCard> createState() => _ListingCardState();
+}
+
+class _ListingCardState extends State<ListingCard> with SingleTickerProviderStateMixin {
+  final _balanceService = BalanceService();
+  bool _isDragging = false;
+  double _dragExtent = 0;
+  static const _dragThreshold = 100.0;
+  late final AnimationController _arrowAnimationController;
+  late final Animation<double> _arrowAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _arrowAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: false);
     
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Image.network(
-              listing.imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: AppTheme.primaryColor.withOpacity(0.1),
-                  child: const Center(
-                    child: Icon(
-                      Icons.image_not_supported,
-                      size: 48,
-                      color: AppTheme.primaryColor,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    _arrowAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0, end: -12)
+          .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 30.0,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: -12, end: 4)
+          .chain(CurveTween(curve: Curves.bounceOut)),
+        weight: 40.0,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 4, end: 0)
+          .chain(CurveTween(curve: Curves.bounceOut)),
+        weight: 30.0,
+      ),
+    ]).animate(_arrowAnimationController);
+  }
+
+  @override
+  void dispose() {
+    _arrowAnimationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showBidConfirmation() async {
+    final solBalance = await _balanceService.getSolBalance();
+    final requiredBalance = widget.listing.currentPrice;
+    final hasEnoughBalance = solBalance >= requiredBalance;
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        listing.name,
-                        style: theme.textTheme.headlineMedium,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${listing.currentPrice.toStringAsFixed(2)} SOL',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.secondaryColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
                 Text(
-                  'by ${listing.authority}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+                  'Confirm Bid',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  listing.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 16),
-                LinearProgressIndicator(
-                  value: listing.progressPercentage,
-                  backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    listing.isGraduated ? Colors.green : AppTheme.primaryColor,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '${listing.currentSupply}/${listing.minimumItems} items',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _getStatusColor(listing.status).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        listing.status,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: _getStatusColor(listing.status),
-                        ),
-                      ),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            Text(
+              'You are about to bid on:',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.listing.name,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Current Price:'),
+                      Text(
+                        '${widget.listing.currentPrice.toStringAsFixed(2)} SOL',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Your Balance:'),
+                      Text(
+                        '${solBalance.toStringAsFixed(2)} SOL',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: hasEnoughBalance ? Colors.green : Colors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!hasEnoughBalance) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Insufficient balance',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You need ${(requiredBalance - solBalance).toStringAsFixed(2)} more SOL to place this bid.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () {
+                  // TODO: Implement top-up flow
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Top-up feature coming soon'),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.account_balance_wallet),
+                label: const Text('Top Up Wallet'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: AppTheme.secondaryColor,
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  // TODO: Implement bid placement
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Bid placement coming soon'),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: AppTheme.secondaryColor,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('Place Bid'),
+              ),
+            ],
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return GestureDetector(
+      onVerticalDragStart: (_) {
+        setState(() {
+          _isDragging = true;
+          _dragExtent = 0;
+        });
+        _arrowAnimationController.stop();
+      },
+      onVerticalDragUpdate: (details) {
+        if (!_isDragging) return;
+        setState(() {
+          _dragExtent += details.primaryDelta ?? 0;
+          if (_dragExtent < 0) _dragExtent = 0;
+        });
+      },
+      onVerticalDragEnd: (_) {
+        if (_dragExtent >= _dragThreshold) {
+          _showBidConfirmation();
+        }
+        setState(() {
+          _isDragging = false;
+          _dragExtent = 0;
+        });
+        _arrowAnimationController.repeat(reverse: true);
+      },
+      child: Stack(
+        children: [
+          Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    children: [
+                      Image.network(
+                        widget.listing.imageUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: AppTheme.primaryColor.withOpacity(0.1),
+                            child: const Center(
+                              child: Icon(
+                                Icons.image_not_supported,
+                                size: 48,
+                                color: AppTheme.primaryColor,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.listing.name,
+                              style: theme.textTheme.headlineMedium,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${widget.listing.currentPrice.toStringAsFixed(2)} SOL',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.secondaryColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'by ${widget.listing.authority}',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.listing.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      LinearProgressIndicator(
+                        value: widget.listing.progressPercentage,
+                        backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          widget.listing.isGraduated ? Colors.green : AppTheme.primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${widget.listing.currentSupply}/${widget.listing.minimumItems} items',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _getStatusColor(widget.listing.status).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              widget.listing.status,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: _getStatusColor(widget.listing.status),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_isDragging)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: AnimatedBuilder(
+                      animation: _arrowAnimation,
+                      builder: (context, child) {
+                        return Transform.translate(
+                          offset: Offset(0, _arrowAnimation.value),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.touch_app_outlined,
+                                size: 16,
+                                color: AppTheme.primaryColor,
+                              ),
+                              const SizedBox(width: 4),
+                              const Text(
+                                'Pull',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: AppTheme.primaryColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
           ),
+          if (_isDragging)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(
+                  (_dragExtent / _dragThreshold * 0.5).clamp(0.0, 0.5),
+                ),
+                child: Center(
+                  child: Text(
+                    'Pull to bid',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(
+                        (_dragExtent / _dragThreshold).clamp(0.0, 1.0),
+                      ),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
