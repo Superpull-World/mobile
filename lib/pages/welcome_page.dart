@@ -96,8 +96,8 @@ class _WelcomePageState extends State<WelcomePage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Image.network(
-                'https://imgproxy.gamma.app/resize/quality:80/resizing_type:fit/width:1200/https://cdn.gamma.app/ml2wbmww0ig956p/0ed9d895af82439c84562091ee01a484/original/runwaycattall.png',
+              Image.asset(
+                'assets/images/runway.png',
                 height: MediaQuery.of(context).size.height * 0.5,
                 width: double.infinity,
                 fit: BoxFit.cover,
@@ -105,11 +105,11 @@ class _WelcomePageState extends State<WelcomePage> {
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
                     height: MediaQuery.of(context).size.height * 0.5,
-                    color: AppTheme.surfaceColor,
-                    child: Center(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    child: const Center(
                       child: Icon(
                         Icons.image_not_supported,
-                        size: 64,
+                        size: 48,
                         color: AppTheme.primaryColor,
                       ),
                     ),
@@ -143,7 +143,7 @@ class _WelcomePageState extends State<WelcomePage> {
                     ),
                     const SizedBox(height: 48),
                     if (_isAuthenticating) ...[
-                      Center(
+                      const Center(
                         child: CircularProgressIndicator(
                           valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
                         ),
@@ -155,7 +155,7 @@ class _WelcomePageState extends State<WelcomePage> {
                         textAlign: TextAlign.center,
                       ),
                     ] else if (_error != null) ...[
-                      Icon(
+                      const Icon(
                         Icons.error_outline,
                         color: AppTheme.primaryColor,
                         size: 64,
@@ -180,7 +180,24 @@ class _WelcomePageState extends State<WelcomePage> {
                     ] else ...[
                       ElevatedButton(
                         onPressed: _isAuthenticated ? _navigateToListings : null,
-                        child: const Text("Let's Pull"),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 48,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: AppTheme.secondaryColor,
+                        ),
+                        child: const Text(
+                          "Let's Pull",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                     const SizedBox(height: 40),

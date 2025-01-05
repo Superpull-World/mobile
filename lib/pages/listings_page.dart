@@ -1,9 +1,130 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/listing.dart';
 import '../theme/app_theme.dart';
 import '../services/balance_service.dart';
+import '../services/wallet_service.dart';
 import 'create_listing_page.dart';
 import 'settings_page.dart';
+import 'dart:async';
+
+class QRButton extends StatelessWidget {
+  const QRButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.qr_code),
+      onPressed: () => _showQRModal(context),
+    );
+  }
+
+  Future<void> _showQRModal(BuildContext context) async {
+    final walletService = WalletService();
+    try {
+      final address = await walletService.getWalletAddress();
+      if (context.mounted) {
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (context) => _QRModal(address: address),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading wallet address: $e')),
+        );
+      }
+    }
+  }
+}
+
+class _QRModal extends StatelessWidget {
+  final String address;
+
+  const _QRModal({required this.address});
+
+  Future<void> _copyAddress(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: address));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Address copied to clipboard')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Wallet Address',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: QrImageView(
+              data: address,
+              version: QrVersions.auto,
+              size: 200,
+              backgroundColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    address,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy),
+                  onPressed: () => _copyAddress(context),
+                  tooltip: 'Copy address',
+                  color: AppTheme.primaryColor,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
 
 class ListingsPage extends StatelessWidget {
   const ListingsPage({super.key});
@@ -12,12 +133,16 @@ class ListingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'SuperPull',
-          style: Theme.of(context).textTheme.headlineMedium,
+        title: Image.asset(
+          'assets/icons/logo.png',
+          height: 32,
+          fit: BoxFit.contain,
         ),
+        centerTitle: true,
         actions: const [
           BalanceIndicators(),
+          SizedBox(width: 8),
+          QRButton(),
           SizedBox(width: 8),
           SettingsButton(),
         ],
@@ -75,11 +200,27 @@ class _BalanceIndicatorsState extends State<BalanceIndicators> {
   double _solBalance = 0.0;
   double _usdcBalance = 0.0;
   bool _isLoading = true;
+  Timer? _refreshTimer;
+
+  // Refresh every 3 seconds
+  static const Duration _refreshInterval = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
     _loadBalances();
+    _startPeriodicRefresh();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPeriodicRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) => _loadBalances());
   }
 
   Future<void> _loadBalances() async {
@@ -159,7 +300,7 @@ class _BalanceChip extends StatelessWidget {
             width: 16,
             height: 16,
             errorBuilder: (context, error, stackTrace) {
-              return Icon(
+              return const Icon(
                 Icons.circle,
                 size: 16,
                 color: AppTheme.primaryColor,
@@ -169,7 +310,7 @@ class _BalanceChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             '${amount.toStringAsFixed(2)} $symbol',
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
               color: AppTheme.primaryColor,
@@ -194,7 +335,7 @@ class ListingsView extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            const Icon(
               Icons.shopping_bag_outlined,
               size: 64,
               color: AppTheme.primaryColor,
@@ -253,7 +394,7 @@ class ListingCard extends StatelessWidget {
               errorBuilder: (context, error, stackTrace) {
                 return Container(
                   color: AppTheme.primaryColor.withOpacity(0.1),
-                  child: Center(
+                  child: const Center(
                     child: Icon(
                       Icons.image_not_supported,
                       size: 48,
@@ -289,7 +430,7 @@ class ListingCard extends StatelessWidget {
                       ),
                       child: Text(
                         '\$${listing.initialPrice.toStringAsFixed(2)}',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppTheme.secondaryColor,
@@ -327,7 +468,7 @@ class ListingCard extends StatelessWidget {
                       ),
                       child: Text(
                         'Min. items: ${listing.minimumItems}',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           color: AppTheme.primaryColor,
