@@ -42,3 +42,9 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation 'com.google.errorprone:error_prone_annotations:2.23.0'
+    implementation 'com.google.code.findbugs:jsr305:3.0.2'
+}
