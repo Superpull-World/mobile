@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/workflow_service.dart';
 import '../services/wallet_service.dart';
+import '../services/auth_service.dart';
 
 class CreateListingPage extends StatefulWidget {
   const CreateListingPage({super.key});
@@ -18,13 +19,17 @@ class _CreateListingPageState extends State<CreateListingPage> {
   final _descriptionController = TextEditingController();
   final _priceController = TextEditingController();
   final _minimumItemsController = TextEditingController();
+  final _maxSupplyController = TextEditingController();
   final _imagePicker = ImagePicker();
   final _workflowService = WorkflowService();
   final _walletService = WalletService();
+  final _authService = AuthService();
   DateTime _saleEndDate = DateTime.now().add(const Duration(days: 7));
   File? _imageFile;
   bool _isPickingImage = false;
   bool _isSubmitting = false;
+  String? _uploadedImageUrl;
+  String _submissionStatus = '';
 
   @override
   void dispose() {
@@ -32,6 +37,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
     _descriptionController.dispose();
     _priceController.dispose();
     _minimumItemsController.dispose();
+    _maxSupplyController.dispose();
     super.dispose();
   }
 
@@ -99,44 +105,91 @@ class _CreateListingPageState extends State<CreateListingPage> {
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate() || _imageFile == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all required fields and select an image')),
+        const SnackBar(
+          content: Text('Please fill all required fields and select an image'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
     setState(() {
       _isSubmitting = true;
+      _submissionStatus = 'Authenticating...';
     });
 
     try {
-      // TODO: Implement image upload and get URL
-      const imageUrl = 'placeholder_url'; // Replace with actual image upload
-      final ownerAddress = await _walletService.getWalletAddress();
+      // Get wallet address and JWT
+      final walletAddress = await _walletService.getWalletAddress();
+      final jwt = await _authService.getStoredJwt();
       
+      if (jwt == null) {
+        throw Exception('Please authenticate first');
+      }
+
+      // Check if JWT is valid
+      if (!await _authService.isAuthenticated()) {
+        setState(() {
+          _submissionStatus = 'Re-authenticating...';
+        });
+        // Try to authenticate
+        final newJwt = await _authService.authenticate();
+        if (newJwt == null) {
+          throw Exception('Authentication failed');
+        }
+      }
+
+      setState(() {
+        _submissionStatus = 'Uploading image...';
+      });
+      // TODO: Implement image upload service
+      // For now we'll assume the image is uploaded and we get a URL
+      _uploadedImageUrl = 'https://example.com/image.jpg'; // Replace with actual upload
+
+      setState(() {
+        _submissionStatus = 'Creating item...';
+      });
       final result = await _workflowService.startCreateItemWorkflow(
         name: _nameController.text,
         description: _descriptionController.text,
-        imageUrl: imageUrl,
+        imageUrl: _uploadedImageUrl!,
         price: double.parse(_priceController.text),
-        ownerAddress: ownerAddress,
+        ownerAddress: walletAddress,
+        maxSupply: int.parse(_maxSupplyController.text),
+        minimumItems: int.parse(_minimumItemsController.text),
+        jwt: jwt,
+        onStatusUpdate: (status) {
+          if (mounted) {
+            setState(() {
+              _submissionStatus = status;
+            });
+          }
+        },
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Item creation workflow started: ${result['id']}')),
+          const SnackBar(
+            content: Text('Item created successfully!'),
+            backgroundColor: Colors.green,
+          ),
         );
-        Navigator.pop(context);
+        Navigator.of(context).pop();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error creating item: $e')),
+          SnackBar(
+            content: Text('Failed to create item: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
       if (mounted) {
         setState(() {
           _isSubmitting = false;
+          _submissionStatus = '';
         });
       }
     }
@@ -324,6 +377,33 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 },
               ),
               const SizedBox(height: 16),
+              TextFormField(
+                controller: _maxSupplyController,
+                decoration: InputDecoration(
+                  labelText: 'Maximum Supply',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(
+                      color: theme.colorScheme.primary,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter maximum supply';
+                  }
+                  if (int.tryParse(value) == null) {
+                    return 'Please enter a valid number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
               Container(
                 decoration: BoxDecoration(
                   border: Border.all(
@@ -356,15 +436,35 @@ class _CreateListingPageState extends State<CreateListingPage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: _isSubmitting
-                    ? const CircularProgressIndicator()
-                    : const Text(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_isSubmitting) ...[
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        _submissionStatus,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ] else
+                      const Text(
                         'Create Listing',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                  ],
+                ),
               ),
             ],
           ),

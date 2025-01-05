@@ -13,7 +13,7 @@ dependencies:
   solana: ^0.31.1
   http: ^1.1.0
   flutter_secure_storage: ^9.0.0
-  shared_preferences: ^2.2.2
+  shared_preferences: ^2.3.5
   provider: ^6.0.5
   bip39: ^1.0.6
   bs58: ^1.0.2
