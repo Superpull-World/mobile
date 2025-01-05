@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/listing.dart';
 import '../theme/app_theme.dart';
+import '../services/balance_service.dart';
 import 'create_listing_page.dart';
 import 'settings_page.dart';
 
@@ -15,18 +16,10 @@ class ListingsPage extends StatelessWidget {
           'SuperPull',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SettingsPage(),
-                ),
-              );
-            },
-          ),
+        actions: const [
+          BalanceIndicators(),
+          SizedBox(width: 8),
+          SettingsButton(),
         ],
       ),
       body: const ListingsView(),
@@ -46,6 +39,143 @@ class ListingsPage extends StatelessWidget {
           'Create Listing',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
+      ),
+    );
+  }
+}
+
+class SettingsButton extends StatelessWidget {
+  const SettingsButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.settings),
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const SettingsPage(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class BalanceIndicators extends StatefulWidget {
+  const BalanceIndicators({super.key});
+
+  @override
+  State<BalanceIndicators> createState() => _BalanceIndicatorsState();
+}
+
+class _BalanceIndicatorsState extends State<BalanceIndicators> {
+  final BalanceService _balanceService = BalanceService();
+  double _solBalance = 0.0;
+  double _usdcBalance = 0.0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBalances();
+  }
+
+  Future<void> _loadBalances() async {
+    try {
+      final sol = await _balanceService.getSolBalance();
+      final usdc = await _balanceService.getUsdcBalance();
+      if (mounted) {
+        setState(() {
+          _solBalance = sol;
+          _usdcBalance = usdc;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading balances: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _BalanceChip(
+          amount: _solBalance,
+          symbol: 'SOL',
+        ),
+        const SizedBox(width: 8),
+        _BalanceChip(
+          amount: _usdcBalance,
+          symbol: 'USDC',
+        ),
+      ],
+    );
+  }
+}
+
+class _BalanceChip extends StatelessWidget {
+  final double amount;
+  final String symbol;
+
+  const _BalanceChip({
+    required this.amount,
+    required this.symbol,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            'assets/icons/${symbol.toLowerCase()}.png',
+            width: 16,
+            height: 16,
+            errorBuilder: (context, error, stackTrace) {
+              return Icon(
+                Icons.circle,
+                size: 16,
+                color: AppTheme.primaryColor,
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${amount.toStringAsFixed(2)} $symbol',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryColor,
+            ),
+          ),
+        ],
       ),
     );
   }
