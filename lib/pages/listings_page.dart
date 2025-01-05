@@ -5,6 +5,7 @@ import '../models/listing.dart';
 import '../theme/app_theme.dart';
 import '../services/balance_service.dart';
 import '../services/wallet_service.dart';
+import '../services/auction_service.dart';
 import 'create_listing_page.dart';
 import 'settings_page.dart';
 import 'dart:async';
@@ -322,40 +323,338 @@ class _BalanceChip extends StatelessWidget {
   }
 }
 
-class ListingsView extends StatelessWidget {
+class ListingsView extends StatefulWidget {
   const ListingsView({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    // TODO: Replace with actual data fetching
-    final List<Listing> listings = [];
+  State<ListingsView> createState() => _ListingsViewState();
+}
 
-    if (listings.isEmpty) {
+class _ListingsViewState extends State<ListingsView> {
+  final AuctionService _auctionService = AuctionService();
+  List<Listing> _listings = [];
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _noMoreItems = false;
+  String? _error;
+  int _currentPage = 0;
+  static const int _pageSize = 5;
+  final PageController _pageController = PageController();
+  String? _currentWorkflowId;
+  Timer? _pollingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadListings();
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadListings() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      // Start the workflow
+      final workflowResult = await _auctionService.startGetAuctionsWorkflow(
+        limit: _pageSize,
+        offset: _currentPage * _pageSize,
+      );
+
+      _currentWorkflowId = workflowResult['id'] as String;
+
+      // Start polling for workflow status
+      _pollingTimer?.cancel();
+      _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+        _checkWorkflowStatus();
+      });
+
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _checkWorkflowStatus() async {
+    if (_currentWorkflowId == null) return;
+
+    try {
+      final status = await _auctionService.getWorkflowStatus(_currentWorkflowId!);
+      
+      if (status.isCompleted) {
+        _pollingTimer?.cancel();
+        
+        // Fetch the workflow result
+        final listings = await _auctionService.getWorkflowResult(_currentWorkflowId!);
+        
+        if (mounted) {
+          setState(() {
+            _listings = listings;
+            _isLoading = false;
+            _error = null;
+          });
+        }
+      } else if (status.isFailed) {
+        _pollingTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _error = status.message;
+            _isLoading = false;
+          });
+        }
+      }
+      // If not completed or failed, continue polling
+    } catch (e) {
+      _pollingTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMoreListings() async {
+    if (_listings.length < _pageSize || _isLoadingMore) return;
+
+    setState(() {
+      _isLoadingMore = true;
+      _error = null;
+    });
+
+    try {
+      final nextPage = _currentPage + 1;
+      
+      final workflowResult = await _auctionService.startGetAuctionsWorkflow(
+        limit: _pageSize,
+        offset: nextPage * _pageSize,
+      );
+
+      final workflowId = workflowResult['id'] as String;
+      
+      bool isComplete = false;
+      while (!isComplete) {
+        try {
+          final status = await _auctionService.getWorkflowStatus(workflowId);
+          
+          if (status.isCompleted) {
+            final newListings = await _auctionService.getWorkflowResult(workflowId);
+
+            if (mounted) {
+              if (newListings.isEmpty) {
+                setState(() {
+                  _isLoadingMore = true;
+                  _noMoreItems = true;
+                });
+                
+                await Future.delayed(const Duration(milliseconds: 1500));
+                
+                if (mounted) {
+                  setState(() {
+                    _isLoadingMore = false;
+                    _noMoreItems = false;
+                  });
+                  
+                  _pageController.animateToPage(
+                    _listings.length - 1,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOut,
+                  );
+                }
+              } else {
+                setState(() {
+                  _isLoadingMore = false;
+                  _noMoreItems = false;
+                  _listings.addAll(newListings);
+                  _currentPage = nextPage;
+                });
+              }
+            }
+            isComplete = true;
+          } else if (status.isFailed) {
+            if (mounted) {
+              setState(() {
+                _isLoadingMore = false;
+                // Animate back to the previous page
+                _pageController.animateToPage(
+                  _listings.length - 1,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to load more auctions: ${status.message}'),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              });
+            }
+            isComplete = true;
+          } else {
+            await Future.delayed(const Duration(seconds: 2));
+          }
+        } catch (e) {
+          print('Error checking workflow status: $e');
+          if (mounted) {
+            setState(() {
+              _isLoadingMore = false;
+              // Animate back to the previous page
+              _pageController.animateToPage(
+                _listings.length - 1,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Failed to load more auctions'),
+                  duration: Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            });
+          }
+          isComplete = true;
+        }
+      }
+    } catch (e) {
+      print('Error starting pagination workflow: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+          // Animate back to the previous page
+          _pageController.animateToPage(
+            _listings.length - 1,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to load more auctions'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading && _listings.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null && _listings.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.shopping_bag_outlined,
-              size: 64,
-              color: AppTheme.primaryColor,
+            Text(
+              _error!,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.red,
+              ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
-            Text(
-              'No listings available yet.\nBe the first to create one!',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
+            ElevatedButton(
+              onPressed: _loadListings,
+              child: const Text('Retry'),
             ),
           ],
         ),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: listings.length,
+    if (_listings.isEmpty) {
+      return const Center(
+        child: Text(
+          'No auctions available',
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.grey,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return PageView.builder(
+      controller: _pageController,
+      itemCount: _listings.length + (_isLoadingMore ? 1 : 0),
+      onPageChanged: (index) {
+        if (index == _listings.length - 1) {
+          _loadMoreListings();
+        }
+      },
       itemBuilder: (context, index) {
-        return ListingCard(listing: listings[index]);
+        if (index == _listings.length) {
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_isLoadingMore && !_noMoreItems)
+                    ...[
+                      const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Loading more auctions...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ]
+                  else if (_noMoreItems)
+                    ...[
+                      const Icon(
+                        Icons.check_circle_outline,
+                        size: 32,
+                        color: Colors.grey,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'You\'ve seen all auctions',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                ],
+              ),
+            ),
+          );
+        }
+
+        final listing = _listings[index];
+        return ListingCard(listing: listing);
       },
     );
   }
@@ -366,22 +665,12 @@ class ListingCard extends StatelessWidget {
 
   const ListingCard({super.key, required this.listing});
 
-  String _formatDuration(Duration duration) {
-    if (duration.inDays > 0) {
-      return '${duration.inDays} days left';
-    } else if (duration.inHours > 0) {
-      return '${duration.inHours} hours left';
-    } else {
-      return '${duration.inMinutes} minutes left';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
     return Card(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -429,7 +718,7 @@ class ListingCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '\$${listing.initialPrice.toStringAsFixed(2)}',
+                        '${listing.currentPrice.toStringAsFixed(2)} SOL',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -441,7 +730,7 @@ class ListingCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'by ${listing.designerName}',
+                  'by ${listing.authority}',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
@@ -454,25 +743,21 @@ class ListingCard extends StatelessWidget {
                   style: theme.textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 16),
+                LinearProgressIndicator(
+                  value: listing.progressPercentage,
+                  backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    listing.isGraduated ? Colors.green : AppTheme.primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'Min. items: ${listing.minimumItems}',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: AppTheme.primaryColor,
-                        ),
+                    Text(
+                      '${listing.currentSupply}/${listing.minimumItems} items',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                     Container(
@@ -481,19 +766,15 @@ class ListingCard extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: listing.remainingTime.inDays < 2
-                            ? Colors.red.withOpacity(0.1)
-                            : AppTheme.primaryColor.withOpacity(0.1),
+                        color: _getStatusColor(listing.status).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        _formatDuration(listing.remainingTime),
+                        listing.status,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          color: listing.remainingTime.inDays < 2
-                              ? Colors.red
-                              : AppTheme.primaryColor,
+                          color: _getStatusColor(listing.status),
                         ),
                       ),
                     ),
@@ -505,5 +786,16 @@ class ListingCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Graduated':
+        return Colors.green;
+      case 'Active':
+        return AppTheme.primaryColor;
+      default:
+        return Colors.red;
+    }
   }
 } 

@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class WorkflowService {
-  // TODO: Move this to a configuration file
   static const String baseUrl = 'http://localhost:5050/api';
 
   void _logRequest(String method, String url, Map<String, dynamic>? body) {
@@ -16,22 +16,42 @@ class WorkflowService {
     print('📄 Body: ${response.body}');
   }
 
-  Future<Map<String, dynamic>> _queryWorkflow(String workflowId) async {
-    final url = '$baseUrl/workflow/query?id=$workflowId';
-    _logRequest('GET', url, null);
+  Future<Map<String, dynamic>> executeWorkflow(
+    String workflowType,
+    Map<String, dynamic> input,
+  ) async {
+    try {
+      final url = '$baseUrl/workflow/start';
+      final body = {
+        'name': workflowType,
+        'args': [input],
+      };
 
-    final response = await http.get(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-    );
+      _logRequest('POST', url, body);
 
-    _logResponse('GET', url, response);
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(body),
+      );
 
-    if (response.statusCode != 200) {
-      throw Exception('Failed to query workflow: ${response.body}');
+      _logResponse('POST', url, response);
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to execute workflow: ${response.body}');
+      }
+
+      final responseData = json.decode(response.body);
+      final workflowId = responseData['id'] as String?;
+      if (workflowId == null) {
+        throw Exception('No workflow ID in response');
+      }
+
+      return responseData;
+    } catch (e) {
+      print('❌ Error executing workflow: $e');
+      throw Exception('Failed to execute workflow: $e');
     }
-
-    return json.decode(response.body);
   }
 
   Future<Map<String, dynamic>> startCreateItemWorkflow({
@@ -46,10 +66,9 @@ class WorkflowService {
     required Function(String) onStatusUpdate,
   }) async {
     try {
-      final url = '$baseUrl/workflow/start';
-      final body = {
-        'name': 'createItem',
-        'args': [{
+      final result = await executeWorkflow(
+        'createItem',
+        {
           'name': name,
           'description': description,
           'imageUrl': imageUrl,
@@ -58,58 +77,126 @@ class WorkflowService {
           'maxSupply': maxSupply,
           'minimumItems': minimumItems,
           'jwt': jwt,
-        }]
-      };
-
-      _logRequest('POST', url, body);
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $jwt',
         },
-        body: json.encode(body),
       );
 
-      _logResponse('POST', url, response);
+      final workflowId = result['id'] as String;
+      bool isComplete = false;
+      String? error;
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to start workflow: ${response.body}');
-      }
-
-      final responseData = json.decode(response.body);
-      final workflowId = responseData['id'] as String?;
-      if (workflowId == null) {
-        throw Exception('No workflow ID in response');
-      }
-
-      // Poll for workflow completion
-      while (true) {
-        final queryData = await _queryWorkflow(workflowId);
-        final queries = queryData['queries'] as Map<String, dynamic>?;
-        if (queries == null) continue;
-
-        final state = queries['status'] as String?;
-        if (state == null) continue;
-
-        onStatusUpdate(state);
-
-        // Check for completion
-        if (state == 'completed') {
-          return {
-            'status': 'success',
-            'workflowId': workflowId,
+      while (!isComplete) {
+        try {
+          final queryResult = await queryWorkflow(workflowId, 'status');
+          final status = queryResult['queries']?['status'] as String? ?? 'unknown';
+          
+          // Map the status to a more user-friendly message
+          String displayStatus = switch (status) {
+            'running' => 'Creating NFT...',
+            'verifying-jwt' => 'Verifying credentials...',
+            'uploading-metadata' => 'Uploading metadata...',
+            'creating-nft' => 'Creating NFT...',
+            'creating-merkle-tree' => 'Creating Merkle tree...',
+            'initializing-auction' => 'Initializing auction...',
+            'completed' => 'Completed',
+            'failed' => 'Failed',
+            String s when s.startsWith('failed:') => s,
+            _ => status,
           };
-        } else if (state.contains('failed')) {
-          throw Exception('Workflow failed: $state');
-        }
+          
+          onStatusUpdate(displayStatus);
 
-        // Wait before next poll
-        await Future.delayed(const Duration(seconds: 1));
+          if (status == 'completed') {
+            isComplete = true;
+          } else if (status == 'failed' || status.startsWith('failed:')) {
+            error = status;
+            isComplete = true;
+          } else {
+            await Future.delayed(const Duration(seconds: 2));
+          }
+        } catch (e) {
+          print('Error querying workflow status: $e');
+          await Future.delayed(const Duration(seconds: 2));
+        }
       }
+
+      if (error != null) {
+        throw Exception(error);
+      }
+
+      return result;
     } catch (e) {
       throw Exception('Error in workflow: $e');
+    }
+  }
+
+  Stream<String> queryWorkflowStatus(String workflowId) {
+    final controller = StreamController<String>();
+
+    void pollStatus() async {
+      while (!controller.isClosed) {
+        try {
+          final response = await http.get(
+            Uri.parse('$baseUrl/workflow/query?id=$workflowId'),
+            headers: {'Content-Type': 'application/json'},
+          );
+
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body);
+            final queries = data['queries'] as Map<String, dynamic>?;
+            if (queries != null) {
+              final status = queries['status'] as String?;
+              if (status != null) {
+                controller.add(status);
+              }
+            }
+          }
+        } catch (e) {
+          controller.addError(e);
+        }
+
+        await Future.delayed(const Duration(seconds: 2));
+      }
+    }
+
+    pollStatus();
+
+    return controller.stream.asBroadcastStream()
+      ..listen(
+        null,
+        onDone: () => controller.close(),
+        cancelOnError: false,
+      );
+  }
+
+  Future<Map<String, dynamic>> queryWorkflow(String workflowId, String queryName) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/workflow/query?id=$workflowId&query=$queryName'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      _logResponse('GET', '$baseUrl/workflow/query?id=$workflowId&query=$queryName', response);
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to query workflow: ${response.body}');
+      }
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+      
+      // Check if this is a status query
+      if (queryName == 'status' && responseData['status']?['name'] != null) {
+        // Handle the special case for status queries
+        return {
+          'queries': {
+            'status': responseData['status']['name'].toString().toLowerCase(),
+          }
+        };
+      }
+
+      return responseData;
+    } catch (e) {
+      print('❌ Error querying workflow: $e');
+      throw Exception('Failed to query workflow: $e');
     }
   }
 } 
