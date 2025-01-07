@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:solana/solana.dart';
-import 'package:bs58/bs58.dart' as bs58;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'wallet_service.dart';
 

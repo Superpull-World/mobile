@@ -175,7 +175,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               label: const Text('Reveal Recovery Phrase'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.primaryColor,
-                                side: BorderSide(color: AppTheme.primaryColor),
+                                side: const BorderSide(color: AppTheme.primaryColor),
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 24,
                                   vertical: 12,

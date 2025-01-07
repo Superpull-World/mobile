@@ -21,7 +21,7 @@ class WorkflowService {
     Map<String, dynamic> input,
   ) async {
     try {
-      final url = '$baseUrl/workflow/start';
+      const url = '$baseUrl/workflow/start';
       final body = {
         'name': workflowType,
         'args': [input],

@@ -32,7 +32,7 @@ class BalanceService {
 
       final tokenAccounts = await _client.rpcClient.getTokenAccountsByOwner(
         keypair.publicKey.toBase58(),
-        TokenAccountsFilter.byMint(_usdcMint),
+        const TokenAccountsFilter.byMint(_usdcMint),
       );
 
       if (tokenAccounts.value.isEmpty) return 0.0;

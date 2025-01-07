@@ -1011,7 +1011,7 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
                       builder: (context, child) {
                         return Transform.translate(
                           offset: Offset(0, _arrowAnimation.value),
-                          child: Row(
+                          child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
@@ -1019,8 +1019,8 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
                                 size: 16,
                                 color: AppTheme.primaryColor,
                               ),
-                              const SizedBox(width: 4),
-                              const Text(
+                              SizedBox(width: 4),
+                              Text(
                                 'Pull',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
