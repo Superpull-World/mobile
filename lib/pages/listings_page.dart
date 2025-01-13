@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../services/balance_service.dart';
 import '../services/wallet_service.dart';
 import '../services/auction_service.dart';
+import '../services/bid_service.dart';
 import 'create_listing_page.dart';
 import 'settings_page.dart';
 import 'dart:async';
@@ -714,7 +715,8 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
   Future<void> _showBidConfirmation() async {
     final solBalance = await _balanceService.getSolBalance();
     final requiredBalance = widget.listing.currentPrice;
-    final hasEnoughBalance = solBalance >= requiredBalance;
+    // Temporarily disable balance check
+    final hasEnoughBalance = true; // solBalance >= requiredBalance;
 
     if (!mounted) return;
 
@@ -828,14 +830,69 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
             ] else ...[
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () {
-                  // TODO: Implement bid placement
+                onPressed: () async {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Bid placement coming soon'),
-                    ),
-                  );
+                  
+                  final bidService = BidService();
+                  try {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => const Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+
+                    await bidService.startPlaceBidWorkflow(
+                      auctionAddress: widget.listing.id,
+                      bidAmount: widget.listing.currentPrice,
+                      onStatusUpdate: (status) {
+                        // Update the loading dialog with status
+                        if (context.mounted) {
+                          Navigator.of(context).pop(); // Remove old dialog
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (context) => Center(
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const CircularProgressIndicator(),
+                                      const SizedBox(height: 16),
+                                      Text(status),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                    );
+
+                    if (context.mounted) {
+                      Navigator.of(context).pop(); // Remove loading dialog
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Bid placed successfully!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      Navigator.of(context).pop(); // Remove loading dialog
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Failed to place bid: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primaryColor,
