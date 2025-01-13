@@ -151,7 +151,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
       });
 
       bool hasCompleted = false;
-      await _workflowService.startCreateItemWorkflow(
+      await _workflowService.startCreateAuctionWorkflow(
         name: _nameController.text,
         description: _descriptionController.text,
         imageUrl: _uploadedImageUrl!,
@@ -159,6 +159,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
         ownerAddress: walletAddress,
         maxSupply: int.parse(_maxSupplyController.text),
         minimumItems: int.parse(_minimumItemsController.text),
+        deadline: _saleEndDate,
         jwt: jwt,
         onStatusUpdate: (status) {
           if (!mounted) return;
@@ -170,7 +171,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
               _isSubmitting = false;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Item created successfully!'),
+                  content: Text('Auction created successfully!'),
                   backgroundColor: Colors.green,
                 ),
               );
@@ -179,7 +180,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
               _isSubmitting = false;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Failed to create item: $status'),
+                  content: Text('Failed to create auction: $status'),
                   backgroundColor: Colors.red,
                 ),
               );

@@ -30,24 +30,33 @@ class Listing {
   });
 
   factory Listing.fromAuction(Map<String, dynamic> auction) {
+    // Convert lamports to SOL (1 SOL = 1e9 lamports)
+    final basePrice = (auction['basePrice'] as num).toDouble() / 1e9;
+    final priceIncrement = (auction['priceIncrement'] as num).toDouble() / 1e9;
+    final currentSupply = (auction['currentSupply'] as num).toInt();
+    final totalValueLocked = (auction['totalValueLocked'] as num).toDouble() / 1e9;
+    
+    // Calculate current price based on base price, current supply and increment
+    final currentPrice = basePrice + (currentSupply * priceIncrement);
+
     return Listing(
       id: auction['address'],
       name: auction['name'] ?? 'Untitled Auction',
       description: auction['description'] ?? 'No description available',
       imageUrl: auction['imageUrl'] ?? 'https://assets.superpull.world/placeholder.png',
-      initialPrice: (auction['basePrice'] as num).toDouble(),
-      currentPrice: (auction['currentPrice'] as num).toDouble(),
-      currentSupply: (auction['currentSupply'] as num).toInt(),
+      initialPrice: basePrice,
+      currentPrice: currentPrice,
+      currentSupply: currentSupply,
       maxSupply: (auction['maxSupply'] as num).toInt(),
       minimumItems: (auction['minimumItems'] as num).toInt(),
       isGraduated: auction['isGraduated'] as bool,
       authority: auction['authority'] as String,
       merkleTree: auction['merkleTree'] as String,
-      totalValueLocked: (auction['totalValueLocked'] as num).toDouble(),
+      totalValueLocked: totalValueLocked,
     );
   }
 
-  double get progressPercentage => currentSupply / minimumItems;
+  double get progressPercentage => minimumItems > 0 ? currentSupply / minimumItems : 0.0;
   bool get isActive => !isGraduated && currentSupply < maxSupply;
   String get status => isGraduated ? 'Graduated' : (isActive ? 'Active' : 'Ended');
 } 

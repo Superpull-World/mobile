@@ -676,32 +676,33 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
   static const _dragThreshold = 100.0;
   late final AnimationController _arrowAnimationController;
   late final Animation<double> _arrowAnimation;
+  late final Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
     _arrowAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: false);
-    
-    _arrowAnimation = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0, end: -12)
-          .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 30.0,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: -12, end: 4)
-          .chain(CurveTween(curve: Curves.bounceOut)),
-        weight: 40.0,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 4, end: 0)
-          .chain(CurveTween(curve: Curves.bounceOut)),
-        weight: 30.0,
-      ),
-    ]).animate(_arrowAnimationController);
+      duration: const Duration(milliseconds: 2000),
+    )..repeat();
+
+    // Simple downward motion from 0 to 24
+    _arrowAnimation = Tween<double>(
+      begin: 0,
+      end: 24,
+    ).animate(CurvedAnimation(
+      parent: _arrowAnimationController,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeInOut),
+    ));
+
+    // Fade out during the downward motion
+    _fadeAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _arrowAnimationController,
+      curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
+    ));
   }
 
   @override
@@ -1007,29 +1008,32 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: AnimatedBuilder(
-                      animation: _arrowAnimation,
+                      animation: _arrowAnimationController,
                       builder: (context, child) {
-                        return Transform.translate(
-                          offset: Offset(0, _arrowAnimation.value),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.touch_app_outlined,
-                                size: 16,
-                                color: AppTheme.primaryColor,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Pull',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
+                        return Opacity(
+                          opacity: _fadeAnimation.value,
+                          child: Transform.translate(
+                            offset: Offset(0, _arrowAnimation.value),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.touch_app_outlined,
+                                  size: 24,
                                   color: AppTheme.primaryColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
                                 ),
-                              ),
-                            ],
+                                SizedBox(width: 8),
+                                Text(
+                                  'Pull',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: AppTheme.primaryColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },
