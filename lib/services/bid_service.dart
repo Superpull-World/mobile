@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:solana/solana.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/wallet_service.dart';
 
@@ -26,7 +27,7 @@ class BidService {
         {
           'auctionAddress': auctionAddress,
           'bidderAddress': bidderAddress,
-          'bidAmount': bidAmount,
+          'bidAmount': bidAmount * lamportsPerSol,
         },
       );
 
@@ -64,11 +65,12 @@ class BidService {
               'unsignedTransaction',
             );
             unsignedTransaction = txResult['queries']?['unsignedTransaction'] as String?;
+            print('unsignedTransaction: $unsignedTransaction');
 
             if (unsignedTransaction != null) {
               // Sign the transaction using the wallet service
               final signedTx = await _walletService.signTransaction(unsignedTransaction);
-              
+              print('signedTx: $signedTx');
               // Send the signed transaction back to the workflow
               await _workflowService.signalWorkflow(
                 workflowId,

@@ -71,13 +71,24 @@ class WalletService {
 
     try {
       // Decode the base64 transaction
-      final decodedTx = base64Decode(unsignedTransaction);
+      final decodedTx = SignedTx.decode(unsignedTransaction);
+      print('decodedTx: $decodedTx');
 
+      // signTransaction(decodedTx.compiledMessage.recentBlockhash, decodedTx.compiledMessage, keypair);
       // Sign the transaction bytes directly
-      final signature = await keypair.sign(decodedTx);
+      final tx = SignedTx(
+        compiledMessage: decodedTx.compiledMessage,
+        signatures: [
+          decodedTx.signatures[0],
+          // Signature(List.filled(64, 0), publicKey: decodedTx.signatures[0].publicKey),
+          await keypair.sign(decodedTx.compiledMessage.toByteArray()),
+          // Signature(List.filled(64, 0), publicKey: keypair.publicKey),
+        ],
+      );
+      print('signature: $tx');
       
       // Return the signature encoded in base64
-      return base64Encode(signature.bytes);
+      return tx.encode();
     } catch (e) {
       print('❌ Error signing transaction: $e');
       throw Exception('Failed to sign transaction: $e');
