@@ -42,19 +42,19 @@ class TokenService {
       
       // Poll for workflow result
       while (true) {
-        final workflowResult = await _workflowService.queryWorkflow(workflowId, 'result');
+        final workflowResult = await _workflowService.queryWorkflow(workflowId, 'tokenMintsResult');
         final status = workflowResult['queries']?['status'] as String?;
         
         if (status == 'completed') {
-          final data = workflowResult['queries']?['result'] as Map<String, dynamic>;
+          final data = workflowResult['queries']?['tokenMintsResult'] as Map<String, dynamic>;
           print('✅ Workflow completed: $data');
           
-          final List<dynamic> tokens = data['tokenMints'];
+          final List<dynamic> tokens = data['tokenMints'] as List<dynamic>;
           print('📝 Received ${tokens.length} tokens from workflow');
           
           _cachedTokens = tokens.map((json) {
             print('🪙 Processing token: ${json['mint']}');
-            return TokenMetadata.fromJson(json);
+            return TokenMetadata.fromJson(json as Map<String, dynamic>);
           }).toList();
           
           _lastFetchTime = DateTime.now();

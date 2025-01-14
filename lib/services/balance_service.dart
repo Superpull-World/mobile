@@ -49,7 +49,7 @@ class BalanceService {
     }
   }
 
-  Future<double> getTokenBalance() async {
+  Future<double> getTokenBalance(String tokenMint) async {
     if (!_isInitialized) {
       print('❌ Balance service not initialized');
       return 0.0;
@@ -57,12 +57,12 @@ class BalanceService {
 
     try {
       print('🔍 Fetching token balance for:');
-      print('   Token mint: $_tokenMint');
+      print('   Token mint: $tokenMint');
       print('   Owner: ${_keypair.publicKey.toBase58()}');
       
       final tokenAccounts = await _client.rpcClient.getTokenAccountsByOwner(
         _keypair.publicKey.toBase58(),
-        TokenAccountsFilter.byMint(_tokenMint),
+        TokenAccountsFilter.byMint(tokenMint),
         encoding: Encoding.jsonParsed,
         commitment: Commitment.confirmed,
       );

@@ -1,94 +1,74 @@
-import 'package:superpull_mobile/models/listing.dart';
+import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 
 class AuctionService {
-  final WorkflowService _workflowService = WorkflowService();
+  final _workflowService = WorkflowService();
 
-  Future<Map<String, dynamic>> startGetAuctionsWorkflow({
-    String? merkleTree,
-    String? authority,
-    bool? isGraduated,
-    int limit = 10,
-    int offset = 0,
+  Future<String?> startGetAuctionsWorkflow({
+    required int limit,
+    required int offset,
   }) async {
     try {
-      return await _workflowService.executeWorkflow(
+      final result = await _workflowService.executeWorkflow(
         'getAuctions',
         {
-          'merkleTree': merkleTree,
-          'authority': authority,
-          'isGraduated': isGraduated,
           'limit': limit,
           'offset': offset,
         },
       );
+      return result['id'] as String?;
     } catch (e) {
-      print('❌ Error starting auctions workflow: $e');
-      throw Exception('Failed to start auctions workflow: $e');
+      print('Error starting auctions workflow: $e');
+      return null;
     }
   }
 
   Future<WorkflowStatus> getWorkflowStatus(String workflowId) async {
     try {
-      final result = await _workflowService.queryWorkflow(
-        workflowId,
-        'status',
-      );
+      final result = await _workflowService.queryWorkflow(workflowId, 'status');
       
-      final status = result['queries']?['status'] as String? ?? 'unknown';
+      final statusData = result['queries']?['status'];
+      if (statusData == null) {
+        return WorkflowStatus(
+          isCompleted: false,
+          isFailed: false,
+          message: 'pending',
+        );
+      }
+
+      final status = statusData.toString();
       return WorkflowStatus(
         isCompleted: status == 'completed',
-        isFailed: status.startsWith('failed'),
+        isFailed: status == 'failed',
         message: status,
       );
     } catch (e) {
-      print('❌ Error getting workflow status: $e');
-      throw Exception('Failed to get workflow status: $e');
+      print('Error getting workflow status: $e');
+      return WorkflowStatus(
+        isCompleted: false,
+        isFailed: true,
+        message: e.toString(),
+      );
     }
   }
 
-  Future<List<Listing>> getWorkflowResult(String workflowId) async {
+  Future<Map<String, dynamic>> getWorkflowResult(String workflowId) async {
     try {
-      final result = await _workflowService.queryWorkflow(
-        workflowId,
-        'auctionsResult',
-      );
-
-      final auctionsResult = result['queries']?['auctionsResult'] as Map<String, dynamic>?;
-      if (auctionsResult == null) {
-        throw Exception('No auctions result in workflow response');
-      }
-
-      final auctionsData = auctionsResult['auctions'] as List<dynamic>;
-      return auctionsData
-          .map((auction) => Listing.fromAuction(auction as Map<String, dynamic>))
-          .toList();
+      final result = await _workflowService.queryWorkflow(workflowId, 'auctionsResult');
+      return result;
     } catch (e) {
-      print('❌ Error getting workflow result: $e');
-      throw Exception('Failed to get workflow result: $e');
+      print('Error getting workflow result: $e');
+      return {'queries': null};
     }
   }
 
-  Future<Listing> getAuctionDetails(String auctionAddress) async {
+  Future<Auction> getAuctionDetails(String workflowId) async {
     try {
-      final result = await _workflowService.executeWorkflow(
-        'getAuctionDetails',
-        {'auctionAddress': auctionAddress},
-      );
-
-      if (result['result'] == null) {
-        throw Exception('No result in workflow response');
-      }
-
-      final workflowResult = result['result'] as Map<String, dynamic>;
-      if (workflowResult['status'] == 'failed' || workflowResult['auction'] == null) {
-        throw Exception(workflowResult['message'] ?? 'Failed to fetch auction details');
-      }
-
-      return Listing.fromAuction(workflowResult['auction'] as Map<String, dynamic>);
+      final workflowResult = await _workflowService.queryWorkflow(workflowId, 'auctionResult');
+      return Auction.fromJson(workflowResult['auction'] as Map<String, dynamic>);
     } catch (e) {
-      print('❌ Error in getAuctionDetails: $e');
-      throw Exception('Failed to fetch auction details: $e');
+      print('Error getting auction details: $e');
+      throw Exception('Failed to get auction details: $e');
     }
   }
 }

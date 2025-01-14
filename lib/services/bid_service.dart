@@ -82,9 +82,22 @@ class BidService {
           }
 
           if (status == 'completed' || status == 'failed' || status.startsWith('failed:')) {
-            isComplete = true;
-            if (status != 'completed') {
-              error = status;
+            // Check submission result before marking as complete
+            final submissionResult = await _workflowService.queryWorkflow(
+              workflowId,
+              'submissionResult',
+            );
+            
+            final result = submissionResult['queries']?['submissionResult'];
+            if (result != null) {
+              isComplete = true;
+              final success = result['success'] as bool? ?? false;
+              if (!success) {
+                error = result['message'] as String? ?? status;
+              }
+            } else {
+              // If no submission result yet, keep polling
+              await Future.delayed(const Duration(seconds: 2));
             }
           } else {
             await Future.delayed(const Duration(seconds: 2));
