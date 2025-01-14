@@ -421,10 +421,18 @@ class _ListingsViewState extends State<ListingsView> {
 
   Future<void> _loadListings() async {
     try {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
+      // Store current page index before refresh
+      final currentPage = _pageController.hasClients ? _pageController.page?.round() ?? 0 : 0;
+      print('Storing current page: $currentPage'); // Debug log
+      
+      // Don't set loading state during periodic refresh to prevent UI flicker
+      final isPeriodicRefresh = !_isLoading;
+      if (!isPeriodicRefresh) {
+        setState(() {
+          _isLoading = true;
+          _error = null;
+        });
+      }
 
       // Start the workflow
       final workflowResult = await _auctionService.startGetAuctionsWorkflow(
@@ -437,7 +445,7 @@ class _ListingsViewState extends State<ListingsView> {
       // Start polling for workflow status
       _pollingTimer?.cancel();
       _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-        _checkWorkflowStatus();
+        _checkWorkflowStatus(currentPage);
       });
 
     } catch (e) {
@@ -448,7 +456,7 @@ class _ListingsViewState extends State<ListingsView> {
     }
   }
 
-  Future<void> _checkWorkflowStatus() async {
+  Future<void> _checkWorkflowStatus(int preservedPage) async {
     if (_currentWorkflowId == null) return;
 
     try {
@@ -461,6 +469,10 @@ class _ListingsViewState extends State<ListingsView> {
         final listings = await _auctionService.getWorkflowResult(_currentWorkflowId!);
         
         if (mounted) {
+          // Get the current page before updating state
+          final currentPage = _pageController.hasClients ? _pageController.page?.round() ?? preservedPage : preservedPage;
+          print('Current page before update: $currentPage'); // Debug log
+          
           setState(() {
             // Sort listings with deterministic order
             _listings = listings..sort((a, b) {
@@ -488,6 +500,18 @@ class _ListingsViewState extends State<ListingsView> {
             _isLoading = false;
             _error = null;
           });
+
+          // Only restore page position if it's a periodic refresh
+          if (!_isLoading) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (_pageController.hasClients) {
+                // Ensure the current page is within bounds
+                final targetPage = currentPage.clamp(0, _listings.length - 1);
+                print('Restoring to page: $targetPage'); // Debug log
+                _pageController.jumpToPage(targetPage);
+              }
+            });
+          }
         }
       } else if (status.isFailed) {
         _pollingTimer?.cancel();
@@ -498,7 +522,6 @@ class _ListingsViewState extends State<ListingsView> {
           });
         }
       }
-      // If not completed or failed, continue polling
     } catch (e) {
       _pollingTimer?.cancel();
       if (mounted) {
@@ -511,7 +534,7 @@ class _ListingsViewState extends State<ListingsView> {
   }
 
   Future<void> _loadMoreListings() async {
-    if (_listings.length < _pageSize || _isLoadingMore) return;
+    if (_listings.length < _pageSize || _isLoadingMore || _noMoreItems) return;
 
     setState(() {
       _isLoadingMore = true;
@@ -520,6 +543,7 @@ class _ListingsViewState extends State<ListingsView> {
 
     try {
       final nextPage = _currentPage + 1;
+      final currentIndex = _pageController.hasClients ? _pageController.page?.round() ?? 0 : 0;
       
       final workflowResult = await _auctionService.startGetAuctionsWorkflow(
         limit: _pageSize,
@@ -539,30 +563,19 @@ class _ListingsViewState extends State<ListingsView> {
             if (mounted) {
               if (newListings.isEmpty) {
                 setState(() {
-                  _isLoadingMore = true;
                   _noMoreItems = true;
+                  _isLoadingMore = false;
                 });
                 
-                await Future.delayed(const Duration(milliseconds: 1500));
-                
-                if (mounted) {
-                  setState(() {
-                    _isLoadingMore = false;
-                    _noMoreItems = false;
-                  });
-                  
-                  _pageController.animateToPage(
-                    _listings.length - 1,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOut,
-                  );
+                // Stay on current page when no more items
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(currentIndex);
                 }
               } else {
                 setState(() {
-                  _isLoadingMore = false;
-                  _noMoreItems = false;
                   _listings.addAll(newListings);
                   _currentPage = nextPage;
+                  _isLoadingMore = false;
                 });
               }
             }
@@ -571,21 +584,19 @@ class _ListingsViewState extends State<ListingsView> {
             if (mounted) {
               setState(() {
                 _isLoadingMore = false;
-                // Animate back to the previous page
-                _pageController.animateToPage(
-                  _listings.length - 1,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOut,
-                );
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to load more auctions: ${status.message}'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+                // Stay on current page on failure
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(currentIndex);
+                }
               });
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Failed to load more auctions: ${status.message}'),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
             }
             isComplete = true;
           } else {
@@ -596,21 +607,19 @@ class _ListingsViewState extends State<ListingsView> {
           if (mounted) {
             setState(() {
               _isLoadingMore = false;
-              // Animate back to the previous page
-              _pageController.animateToPage(
-                _listings.length - 1,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOut,
-              );
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Failed to load more auctions'),
-                  duration: Duration(seconds: 2),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              // Stay on current page on error
+              if (_pageController.hasClients) {
+                _pageController.jumpToPage(currentIndex);
+              }
             });
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Failed to load more auctions'),
+                duration: Duration(seconds: 2),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           }
           isComplete = true;
         }
@@ -620,21 +629,20 @@ class _ListingsViewState extends State<ListingsView> {
       if (mounted) {
         setState(() {
           _isLoadingMore = false;
-          // Animate back to the previous page
-          _pageController.animateToPage(
-            _listings.length - 1,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to load more auctions'),
-              duration: Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          // Stay on current page on error
+          if (_pageController.hasClients) {
+            final currentIndex = _pageController.page?.round() ?? (_listings.length - 1);
+            _pageController.jumpToPage(currentIndex);
+          }
         });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to load more auctions'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }
