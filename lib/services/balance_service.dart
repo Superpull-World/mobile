@@ -1,48 +1,94 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:solana/solana.dart';
 import 'package:solana/dto.dart';
-import 'wallet_service.dart';
+import 'dart:math';
 
 class BalanceService {
-  final WalletService _walletService = WalletService();
-  final SolanaClient _client = SolanaClient(
-    rpcUrl: Uri.parse('https://api.devnet.solana.com'),
-    websocketUrl: Uri.parse('wss://api.devnet.solana.com'),
-  );
-  
-  // USDC token mint address on devnet
-  static const String _usdcMint = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+  final SolanaClient _client;
+  late final Ed25519HDKeyPair _keypair;
+  bool _isInitialized = false;
+
+  // New token mint address
+  static const String _tokenMint = '2u7t1UoiYF59GS3dYRQHVdAt9e1uap2WqKqKM7FbWFDv';
+
+  BalanceService._({
+    required SolanaClient client,
+  }) : _client = client;
+
+  factory BalanceService() {
+    final client = SolanaClient(
+      rpcUrl: Uri.parse('https://api.devnet.solana.com'),
+      websocketUrl: Uri.parse('wss://api.devnet.solana.com'),
+    );
+    return BalanceService._(client: client);
+  }
+
+  Future<void> initialize(Ed25519HDKeyPair keypair) async {
+    _keypair = keypair;
+    _isInitialized = true;
+    print('🔑 Balance service initialized with public key: ${_keypair.publicKey.toBase58()}');
+  }
 
   Future<double> getSolBalance() async {
-    try {
-      final keypair = await _walletService.getKeypair();
-      if (keypair == null) return 0.0;
+    if (!_isInitialized) {
+      print('❌ Balance service not initialized');
+      return 0.0;
+    }
 
-      final balance = await _client.rpcClient.getBalance(keypair.publicKey.toBase58());
+    try {
+      final balance = await _client.rpcClient.getBalance(
+        _keypair.publicKey.toBase58(),
+        commitment: Commitment.confirmed,
+      );
+      print('💰 SOL balance: ${balance.value / lamportsPerSol}');
       return balance.value / lamportsPerSol;
     } catch (e) {
-      print('Error fetching SOL balance: $e');
-      return 0.0;
+      print('❌ Error getting SOL balance: $e');
+      throw Exception('Failed to get SOL balance: $e');
     }
   }
 
-  Future<double> getUsdcBalance() async {
-    try {
-      final keypair = await _walletService.getKeypair();
-      if (keypair == null) return 0.0;
+  Future<double> getTokenBalance() async {
+    if (!_isInitialized) {
+      print('❌ Balance service not initialized');
+      return 0.0;
+    }
 
+    try {
+      print('🔍 Fetching token balance for:');
+      print('   Token mint: $_tokenMint');
+      print('   Owner: ${_keypair.publicKey.toBase58()}');
+      
       final tokenAccounts = await _client.rpcClient.getTokenAccountsByOwner(
-        keypair.publicKey.toBase58(),
-        const TokenAccountsFilter.byMint(_usdcMint),
+        _keypair.publicKey.toBase58(),
+        TokenAccountsFilter.byMint(_tokenMint),
+        encoding: Encoding.jsonParsed,
+        commitment: Commitment.confirmed,
       );
 
-      if (tokenAccounts.value.isEmpty) return 0.0;
+      if (tokenAccounts.value.isEmpty) {
+        print('ℹ️ No token accounts found, returning 0');
+        return 0.0;
+      }
 
-      final tokenBalance = tokenAccounts.value.first.account.data as Map<String, dynamic>;
-      final amount = (tokenBalance['parsed']?['info']?['tokenAmount']?['uiAmount'] as num?)?.toDouble() ?? 0.0;
-      return amount;
+      final tokenAccount = tokenAccounts.value.first;
+      final tokenAccountBalance = await _client.rpcClient.getTokenAccountBalance(tokenAccount.pubkey);
+      print('📝 Token account balance response: $tokenAccountBalance');
+      
+      final amount = tokenAccountBalance.value.uiAmountString;
+      if (amount == null) {
+        print('❌ No UI amount found in balance');
+        return 0.0;
+      }
+
+      final adjustedAmount = double.parse(amount);
+      print('💎 Token balance: $adjustedAmount');
+      return adjustedAmount;
     } catch (e) {
-      print('Error fetching USDC balance: $e');
-      return 0.0;
+      print('❌ Error getting token balance: $e');
+      print('   Stack trace: ${StackTrace.current}');
+      throw Exception('Failed to get token balance: $e');
     }
   }
 } 

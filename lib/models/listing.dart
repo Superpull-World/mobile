@@ -30,11 +30,10 @@ class Listing {
   });
 
   factory Listing.fromAuction(Map<String, dynamic> auction) {
-    // Convert lamports to SOL (1 SOL = 1e9 lamports)
-    final basePrice = (auction['basePrice'] as num).toDouble() / 1e9;
-    final priceIncrement = (auction['priceIncrement'] as num).toDouble() / 1e9;
+    final basePrice = (auction['basePrice'] as num).toDouble() / 1e6;
+    final priceIncrement = (auction['priceIncrement'] as num).toDouble() / 1e6;
     final currentSupply = (auction['currentSupply'] as num).toInt();
-    final totalValueLocked = (auction['totalValueLocked'] as num).toDouble() / 1e9;
+    final totalValueLocked = (auction['totalValueLocked'] as num).toDouble() / 1e6;
     
     // Calculate current price based on base price, current supply and increment
     final currentPrice = basePrice + (currentSupply * priceIncrement);

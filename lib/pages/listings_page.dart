@@ -128,8 +128,60 @@ class _QRModal extends StatelessWidget {
   }
 }
 
-class ListingsPage extends StatelessWidget {
+class ListingsPage extends StatefulWidget {
   const ListingsPage({super.key});
+
+  @override
+  State<ListingsPage> createState() => _ListingsPageState();
+}
+
+class _ListingsPageState extends State<ListingsPage> {
+  final BalanceService _balanceService = BalanceService();
+  double _solBalance = 0.0;
+  double _tokenBalance = 0.0;
+  bool _isLoading = true;
+  Timer? _refreshTimer;
+
+  // Refresh every 3 seconds
+  static const Duration _refreshInterval = Duration(seconds: 3);
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeBalanceService();
+    _loadBalances();
+  }
+
+  Future<void> _initializeBalanceService() async {
+    final keypair = await WalletService().getKeypair();
+    if (keypair != null) {
+      await _balanceService.initialize(keypair);
+    }
+  }
+
+  Future<void> _loadBalances() async {
+    try {
+      final sol = await _balanceService.getSolBalance();
+      final token = await _balanceService.getTokenBalance();
+      setState(() {
+        _solBalance = sol;
+        _tokenBalance = token;
+      });
+    } catch (e) {
+      print('Error loading balances: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPeriodicRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) => _loadBalances());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +192,7 @@ class ListingsPage extends StatelessWidget {
           height: 32,
           fit: BoxFit.contain,
         ),
-        centerTitle: true,
+        centerTitle: false,
         actions: const [
           BalanceIndicators(),
           SizedBox(width: 8),
@@ -199,8 +251,7 @@ class BalanceIndicators extends StatefulWidget {
 
 class _BalanceIndicatorsState extends State<BalanceIndicators> {
   final BalanceService _balanceService = BalanceService();
-  double _solBalance = 0.0;
-  double _usdcBalance = 0.0;
+  double _tokenBalance = 0.0;
   bool _isLoading = true;
   Timer? _refreshTimer;
 
@@ -210,8 +261,16 @@ class _BalanceIndicatorsState extends State<BalanceIndicators> {
   @override
   void initState() {
     super.initState();
+    _initializeBalanceService();
     _loadBalances();
     _startPeriodicRefresh();
+  }
+
+  Future<void> _initializeBalanceService() async {
+    final keypair = await WalletService().getKeypair();
+    if (keypair != null) {
+      await _balanceService.initialize(keypair);
+    }
   }
 
   @override
@@ -227,12 +286,10 @@ class _BalanceIndicatorsState extends State<BalanceIndicators> {
 
   Future<void> _loadBalances() async {
     try {
-      final sol = await _balanceService.getSolBalance();
-      final usdc = await _balanceService.getUsdcBalance();
+      final token = await _balanceService.getTokenBalance();
       if (mounted) {
         setState(() {
-          _solBalance = sol;
-          _usdcBalance = usdc;
+          _tokenBalance = token;
           _isLoading = false;
         });
       }
@@ -260,19 +317,9 @@ class _BalanceIndicatorsState extends State<BalanceIndicators> {
       );
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _BalanceChip(
-          amount: _solBalance,
-          symbol: 'SOL',
-        ),
-        const SizedBox(width: 8),
-        _BalanceChip(
-          amount: _usdcBalance,
-          symbol: 'USDC',
-        ),
-      ],
+    return _BalanceChip(
+      amount: _tokenBalance,
+      symbol: 'Token',
     );
   }
 }
@@ -343,18 +390,33 @@ class _ListingsViewState extends State<ListingsView> {
   final PageController _pageController = PageController();
   String? _currentWorkflowId;
   Timer? _pollingTimer;
+  Timer? _refreshTimer;
+  
+  // Refresh every 3 seconds
+  static const Duration _refreshInterval = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
     _loadListings();
+    _startPeriodicRefresh();
   }
 
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _refreshTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _startPeriodicRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (!_isLoading && !_isLoadingMore) {
+        _loadListings();
+      }
+    });
   }
 
   Future<void> _loadListings() async {
@@ -400,7 +462,29 @@ class _ListingsViewState extends State<ListingsView> {
         
         if (mounted) {
           setState(() {
-            _listings = listings;
+            // Sort listings with deterministic order
+            _listings = listings..sort((a, b) {
+              // First, prioritize non-graduated items
+              if (a.status != 'Graduated' && b.status == 'Graduated') return -1;
+              if (a.status == 'Graduated' && b.status != 'Graduated') return 1;
+              
+              // Then sort by progress towards graduation (closer to minimum items first)
+              final aProgress = (a.minimumItems - a.currentSupply).abs();
+              final bProgress = (b.minimumItems - b.currentSupply).abs();
+              if (aProgress != bProgress) {
+                return aProgress.compareTo(bProgress);
+              }
+              
+              // Then sort by remaining capacity (less remaining spots first)
+              final aRemaining = a.maxSupply - a.currentSupply;
+              final bRemaining = b.maxSupply - b.currentSupply;
+              if (aRemaining != bRemaining) {
+                return aRemaining.compareTo(bRemaining);
+              }
+              
+              // Finally sort by ID for complete determinism
+              return a.id.compareTo(b.id);
+            });
             _isLoading = false;
             _error = null;
           });
@@ -682,6 +766,7 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
+    _initializeBalanceService();
     _arrowAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -706,6 +791,13 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
     ));
   }
 
+  Future<void> _initializeBalanceService() async {
+    final keypair = await WalletService().getKeypair();
+    if (keypair != null) {
+      await _balanceService.initialize(keypair);
+    }
+  }
+
   @override
   void dispose() {
     _arrowAnimationController.dispose();
@@ -713,200 +805,258 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
   }
 
   Future<void> _showBidConfirmation() async {
-    final solBalance = await _balanceService.getSolBalance();
-    final requiredBalance = widget.listing.currentPrice;
-    // Temporarily disable balance check
-    final hasEnoughBalance = true; // solBalance >= requiredBalance;
+    try {
+      final tokenBalance = await _balanceService.getTokenBalance();
+      final requiredBalance = widget.listing.currentPrice;
+      // Temporarily disable balance check
+      final hasEnoughBalance = true; // tokenBalance >= requiredBalance;
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Confirm Bid',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'You are about to bid on:',
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.listing.name,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Current Price:'),
-                      Text(
-                        '${widget.listing.currentPrice.toStringAsFixed(2)} SOL',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
+                  Text(
+                    'Confirm Bid',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Your Balance:'),
-                      Text(
-                        '${solBalance.toStringAsFixed(2)} SOL',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: hasEnoughBalance ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ],
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
-            ),
-            if (!hasEnoughBalance) ...[
               const SizedBox(height: 16),
               Text(
-                'Insufficient balance',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.red,
-                ),
+                'You are about to bid on:',
+                style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 8),
               Text(
-                'You need ${(requiredBalance - solBalance).toStringAsFixed(2)} more SOL to place this bid.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // TODO: Implement top-up flow
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Top-up feature coming soon'),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.account_balance_wallet),
-                label: const Text('Top Up Wallet'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: AppTheme.secondaryColor,
+                widget.listing.name,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ] else ...[
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  
-                  final bidService = BidService();
-                  try {
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (context) => const Center(
-                        child: CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Price:'),
+                        Text(
+                          '${widget.listing.currentPrice.toStringAsFixed(2)} TOKEN',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Your Balance:'),
+                        Text(
+                          '${tokenBalance.toStringAsFixed(2)} TOKEN',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: hasEnoughBalance ? Colors.green : Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (!hasEnoughBalance) ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Insufficient balance',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'You need ${(requiredBalance - tokenBalance).toStringAsFixed(2)} more TOKEN to place this bid.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // TODO: Implement top-up flow
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Top-up feature coming soon'),
                       ),
                     );
+                  },
+                  icon: const Icon(Icons.account_balance_wallet),
+                  label: const Text('Top Up Wallet'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: AppTheme.secondaryColor,
+                  ),
+                ),
+              ] else if (widget.listing.currentSupply >= widget.listing.maxSupply) ...[
+                const SizedBox(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.red,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Maximum Supply Reached',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'This item has reached its maximum supply of ${widget.listing.maxSupply} items.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () async {
+                    final bidService = BidService();
+                    try {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => const Center(
+                          child: Card(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CircularProgressIndicator(),
+                                  SizedBox(height: 16),
+                                  Text('Initializing bid...'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
 
-                    await bidService.startPlaceBidWorkflow(
-                      auctionAddress: widget.listing.id,
-                      bidAmount: widget.listing.currentPrice,
-                      onStatusUpdate: (status) {
-                        // Update the loading dialog with status
-                        if (context.mounted) {
-                          Navigator.of(context).pop(); // Remove old dialog
-                          showDialog(
-                            context: context,
-                            barrierDismissible: false,
-                            builder: (context) => Center(
-                              child: Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const CircularProgressIndicator(),
-                                      const SizedBox(height: 16),
-                                      Text(status),
-                                    ],
+                      await bidService.startPlaceBidWorkflow(
+                        auctionAddress: widget.listing.id,
+                        bidAmount: widget.listing.currentPrice,
+                        onStatusUpdate: (status) {
+                          if (!context.mounted) return;
+                          
+                          Navigator.of(context).pop(); // Remove previous status dialog
+                          
+                          if (status == 'Bid placed successfully') {
+                            Navigator.of(context).pop(); // Close bid modal
+                            
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Bid placed successfully!'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            
+                            // Find and refresh the ListingsView
+                            final listingsViewState = context.findAncestorStateOfType<_ListingsViewState>();
+                            if (listingsViewState != null) {
+                              listingsViewState._loadListings();
+                            }
+                          } else {
+                            // Show new status dialog
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => Center(
+                                child: Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const CircularProgressIndicator(),
+                                        const SizedBox(height: 16),
+                                        Text(status),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        }
-                      },
-                    );
-
-                    if (context.mounted) {
-                      Navigator.of(context).pop(); // Remove loading dialog
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Bid placed successfully!'),
-                          backgroundColor: Colors.green,
-                        ),
+                            );
+                          }
+                        },
                       );
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.of(context).pop(); // Close status dialog
+                        Navigator.of(context).pop(); // Close bid modal
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to place bid: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
                     }
-                  } catch (e) {
-                    if (context.mounted) {
-                      Navigator.of(context).pop(); // Remove loading dialog
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Failed to place bid: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: AppTheme.secondaryColor,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: AppTheme.secondaryColor,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: const Text('Place Bid'),
                 ),
-                child: const Text('Place Bid'),
-              ),
+              ],
+              const SizedBox(height: 16),
             ],
-            const SizedBox(height: 16),
-          ],
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      print('Error showing bid confirmation: $e');
+    }
   }
 
   @override
@@ -995,7 +1145,7 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              '${widget.listing.currentPrice.toStringAsFixed(2)} SOL',
+                              '${widget.listing.currentPrice.toStringAsFixed(2)} TOKEN',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -1020,40 +1170,61 @@ class _ListingCardState extends State<ListingCard> with SingleTickerProviderStat
                         style: theme.textTheme.bodyLarge,
                       ),
                       const SizedBox(height: 16),
-                      LinearProgressIndicator(
-                        value: widget.listing.progressPercentage,
-                        backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          widget.listing.isGraduated ? Colors.green : AppTheme.primaryColor,
-                        ),
+                      Stack(
+                        children: [
+                          LinearProgressIndicator(
+                            value: 1.0,
+                            backgroundColor: Colors.grey[300],
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[400]!),
+                          ),
+                          LinearProgressIndicator(
+                            value: widget.listing.minimumItems / widget.listing.maxSupply,
+                            backgroundColor: Colors.transparent,
+                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
+                          ),
+                          LinearProgressIndicator(
+                            value: widget.listing.currentSupply / widget.listing.maxSupply,
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              widget.listing.status == 'Graduated' 
+                                ? Colors.green 
+                                : theme.colorScheme.primary,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            '${widget.listing.currentSupply}/${widget.listing.minimumItems} items',
+                            '${widget.listing.currentSupply}/${widget.listing.maxSupply} items',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(widget.listing.status).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              widget.listing.status,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: _getStatusColor(widget.listing.status),
+                          Row(
+                            children: [
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(widget.listing.status).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  widget.listing.status,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: _getStatusColor(widget.listing.status),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),

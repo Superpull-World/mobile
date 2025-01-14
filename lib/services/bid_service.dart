@@ -27,7 +27,7 @@ class BidService {
         {
           'auctionAddress': auctionAddress,
           'bidderAddress': bidderAddress,
-          'bidAmount': bidAmount * lamportsPerSol,
+          'bidAmount': bidAmount * 1e6,
         },
       );
 
@@ -56,6 +56,7 @@ class BidService {
             _ => status,
           };
 
+          // Always call onStatusUpdate to ensure UI is updated
           onStatusUpdate(displayStatus);
 
           // If we're awaiting signature and don't have the transaction yet, get it

@@ -338,7 +338,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
                   TextFormField(
                     controller: _priceController,
                     decoration: InputDecoration(
-                      labelText: 'Initial Price (USD)',
+                      labelText: 'Initial Price (TOKEN)',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
