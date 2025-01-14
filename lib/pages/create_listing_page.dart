@@ -218,7 +218,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Create Listing'),
+        title: const Text('Create a dream'),
       ),
       body: Stack(
         children: [
@@ -464,7 +464,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
                           const SizedBox(width: 12),
                           Text(_submissionStatus),
                         ] else
-                          const Text('Create Listing'),
+                          const Text('Make it real'),
                       ],
                     ),
                   ),

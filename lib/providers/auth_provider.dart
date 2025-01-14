@@ -1,37 +1,32 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 
-class AuthProvider extends ChangeNotifier {
-  final AuthService _authService = AuthService();
-  bool _isAuthenticated = false;
+final authServiceProvider = Provider((ref) => AuthService());
 
-  AuthProvider() {
+final authProvider = StateNotifierProvider<AuthNotifier, bool>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  return AuthNotifier(authService);
+});
+
+class AuthNotifier extends StateNotifier<bool> {
+  final AuthService _authService;
+
+  AuthNotifier(this._authService) : super(false) {
     _checkAuthStatus();
   }
 
-  bool get isAuthenticated => _isAuthenticated;
-
   Future<void> _checkAuthStatus() async {
-    _isAuthenticated = await _authService.isAuthenticated();
-    notifyListeners();
+    state = await _authService.isAuthenticated();
   }
 
   Future<bool> authenticate() async {
     final jwt = await _authService.authenticate();
-    _isAuthenticated = jwt != null;
-    notifyListeners();
-    return _isAuthenticated;
+    state = jwt != null;
+    return state;
   }
 
   Future<void> signOut() async {
     await _authService.clearJwt();
-    _isAuthenticated = false;
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _authService.dispose();
-    super.dispose();
+    state = false;
   }
 } 

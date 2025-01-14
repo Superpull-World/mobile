@@ -215,7 +215,7 @@ class _ListingsPageState extends State<ListingsPage> {
         foregroundColor: AppTheme.secondaryColor,
         icon: const Icon(Icons.add),
         label: const Text(
-          'Create Listing',
+          'Dream',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
