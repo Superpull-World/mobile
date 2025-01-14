@@ -523,6 +523,38 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                           ),
                         ],
                       ),
+                      const SizedBox(height: 16),
+                      // Deadline progress indicator
+                      Stack(
+                        children: [
+                          LinearProgressIndicator(
+                            value: 1.0,
+                            backgroundColor: Colors.grey[800],
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[700]!),
+                          ),
+                          LinearProgressIndicator(
+                            value: _getTimeProgress(),
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              _getTimeProgress() >= 0.75 ? Colors.red : const Color(0xFFEEFC42),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatTimeRemaining(),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                              color: _getTimeProgress() >= 0.75 ? Colors.red : Colors.white70,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -598,6 +630,41 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
         return const Color(0xFFEEFC42);
       default:
         return Colors.red;
+    }
+  }
+
+  double _getTimeProgress() {
+    final now = DateTime.now();
+    final end = widget.auction.saleEndDate;
+    final duration = end.difference(now);
+    
+    // If past deadline, return 1.0 (100%)
+    if (duration.isNegative) return 1.0;
+    
+    // Calculate progress based on a 24-hour window
+    const totalDuration = Duration(hours: 24);
+    final progress = 1.0 - (duration.inMilliseconds / totalDuration.inMilliseconds);
+    
+    // Clamp between 0 and 1
+    return progress.clamp(0.0, 1.0);
+  }
+
+  String _formatTimeRemaining() {
+    final now = DateTime.now();
+    final end = widget.auction.saleEndDate;
+    final duration = end.difference(now);
+    
+    if (duration.isNegative) return 'Ended';
+    
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    
+    if (hours > 0) {
+      return '${hours}h ${minutes}m left';
+    } else if (minutes > 0) {
+      return '${minutes}m left';
+    } else {
+      return 'Ending soon';
     }
   }
 } 

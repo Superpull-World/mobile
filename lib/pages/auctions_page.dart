@@ -30,7 +30,6 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   final WalletService _walletService = WalletService();
   String? _walletAddress;
   Timer? _refreshTimer;
-  bool _isBidding = false;
 
   // Refresh every 3 seconds
   static const Duration _refreshInterval = Duration(seconds: 3);
@@ -60,9 +59,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   void _startPeriodicRefresh() {
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
-      if (!_isBidding) {
-        ref.read(auctionsProvider.notifier).refresh();
-      }
+      ref.read(auctionsProvider.notifier).refresh();
     });
   }
 
@@ -214,215 +211,51 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   }
 
   Future<void> _showBidConfirmation(BuildContext context, Auction auction) async {
-    setState(() => _isBidding = true);
-
-    // First show the confirmation modal
-    final shouldBid = await showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.1),
-            width: 1,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Confirm Bid',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Color(0xFFEEFC42)),
-                  onPressed: () => Navigator.pop(context, false),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'You are about to bid on:',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.white70,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              auction.name,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEFC42).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Current Price:',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                      Text(
-                        '${auction.currentPrice.toStringAsFixed(2)} TOKEN',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEEFC42),
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(32),
-                ),
-              ),
-              child: const Text(
-                'Place Bid',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (shouldBid != true || !context.mounted) {
-      setState(() => _isBidding = false);
-      return;
-    }
-
-    // Then show the bid status overlay
     try {
       final bidService = BidService();
-      final statusNotifier = ValueNotifier<String>('Initializing bid...');
       
-      final overlayState = Overlay.of(context);
-      final overlayEntry = OverlayEntry(
-        builder: (context) => Material(
-          color: Colors.black54,
-          child: Center(
-            child: Card(
-              color: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(
-                  color: Colors.white.withOpacity(0.1),
-                  width: 1,
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    ValueListenableBuilder<String>(
-                      valueListenable: statusNotifier,
-                      builder: (context, status, _) => Text(
-                        status,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+      // Create a GlobalKey to access the dialog's state
+      final statusDialogKey = GlobalKey<_BidStatusDialogState>();
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _BidStatusDialog(
+          key: statusDialogKey,
+          initialStatus: 'Initializing bid...',
         ),
       );
 
-      overlayState.insert(overlayEntry);
-
-      try {
-        await bidService.startPlaceBidWorkflow(
-          auctionAddress: auction.id,
-          bidAmount: auction.currentPrice,
-          onStatusUpdate: (status) {
-            if (!context.mounted) return;
-            
-            statusNotifier.value = status;
-            
-            if (status == 'Bid placed successfully') {
-              overlayEntry.remove();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Bid placed successfully!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              setState(() => _isBidding = false);
-              ref.read(auctionsProvider.notifier).refresh();
-            }
-          },
-        );
-      } catch (e) {
-        overlayEntry.remove();
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to place bid: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          setState(() => _isBidding = false);
-        }
-      } finally {
-        statusNotifier.dispose();
-      }
+      await bidService.startPlaceBidWorkflow(
+        auctionAddress: auction.id,
+        bidAmount: auction.currentPrice,
+        onStatusUpdate: (status) {
+          if (!context.mounted) return;
+          
+          // Update the existing dialog's status
+          statusDialogKey.currentState?.updateStatus(status);
+          
+          if (status == 'Bid placed successfully') {
+            Navigator.of(context).pop(); // Close status dialog
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Bid placed successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            ref.read(auctionsProvider.notifier).refresh();
+          }
+        },
+      );
     } catch (e) {
       if (context.mounted) {
+        Navigator.of(context).pop(); // Close status dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to place bid: $e'),
             backgroundColor: Colors.red,
           ),
         );
-        setState(() => _isBidding = false);
       }
     }
   }
@@ -527,21 +360,19 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
             );
           }
 
+          // Update balance for initial auction
+          if (_currentTokenMint == null) {
+            _updateBalanceForCurrentAuction();
+          }
+
           return Stack(
             children: [
               PageView.builder(
                 controller: _pageController,
                 itemCount: auctions.length,
                 itemBuilder: (context, index) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 8,
-                    ),
-                    child: AuctionCard(
-                      auction: auctions[index],
-                    ),
-                  );
+                  final auction = auctions[index];
+                  return AuctionCard(auction: auction);
                 },
               ),
               Positioned(
@@ -574,7 +405,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
             valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
           ),
         ),
-        error: (error, stack) => Center(
+        error: (error, _) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -671,6 +502,70 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
                   Icons.star,
                   size: 20,
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BidStatusDialog extends StatefulWidget {
+  final String initialStatus;
+
+  const _BidStatusDialog({
+    required Key key,
+    required this.initialStatus,
+  }) : super(key: key);
+
+  @override
+  State<_BidStatusDialog> createState() => _BidStatusDialogState();
+}
+
+class _BidStatusDialogState extends State<_BidStatusDialog> {
+  late String _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _status = widget.initialStatus;
+  }
+
+  void updateStatus(String newStatus) {
+    setState(() {
+      _status = newStatus;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Card(
+        color: Colors.black,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: Colors.white.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _status,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
