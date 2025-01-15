@@ -1,3 +1,5 @@
+import 'dart:math';
+
 class Auction {
   final String id;
   final String name;
@@ -35,10 +37,13 @@ class Auction {
 
   factory Auction.fromJson(Map<String, dynamic> json) {
     try {
-      final basePrice = (json['basePrice'] as num).toDouble() / 1e6;
-      final priceIncrement = (json['priceIncrement'] as num).toDouble() / 1e6;
+      // Get decimals from token metadata
+      final decimals = pow(10, (json['decimals'] as num).toInt());
+      
+      final basePrice = (json['basePrice'] as num).toDouble() / decimals;
+      final priceIncrement = (json['priceIncrement'] as num).toDouble() / decimals;
       final currentSupply = (json['currentSupply'] as num).toInt();
-      final totalValueLocked = (json['totalValueLocked'] as num).toDouble() / 1e6;
+      final totalValueLocked = (json['totalValueLocked'] as num).toDouble() / decimals;
       
       // Calculate current price based on base price, current supply and increment
       final currentPrice = basePrice + (currentSupply * priceIncrement);
@@ -49,9 +54,9 @@ class Auction {
 
       return Auction(
         id: json['address'] as String,
-        name: json['name'] ?? 'Untitled Auction',
-        description: json['description'] ?? 'No description available',
-        imageUrl: json['imageUrl'] ?? 'https://assets.superpull.world/placeholder.png',
+        name: json['name'] as String,
+        description: json['description'] as String,
+        imageUrl: json['imageUrl'] as String,
         initialPrice: basePrice,
         currentPrice: currentPrice,
         currentSupply: currentSupply,
@@ -65,8 +70,7 @@ class Auction {
         saleEndDate: saleEndDate,
       );
     } catch (e) {
-      print('Error parsing auction data: $e');
-      print('Raw JSON: $json');
+      print('Error parsing auction: $e');
       rethrow;
     }
   }

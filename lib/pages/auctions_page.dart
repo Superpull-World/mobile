@@ -5,7 +5,10 @@ import '../widgets/auction_card.dart';
 import '../services/balance_service.dart';
 import '../services/wallet_service.dart';
 import '../services/bid_service.dart';
+import '../services/token_service.dart';
+import '../services/workflow_service.dart';
 import '../models/auction.dart';
+import '../models/token_metadata.dart';
 import 'settings_page.dart';
 import 'create_auction_page.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -24,12 +27,17 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   late final PageController _pageController;
   late final AnimationController _animationController;
   int _currentPage = 0;
+  String? _currentAuctionId;
   final _balanceService = BalanceService();
+  final _workflowService = WorkflowService();
+  late final _tokenService = TokenService(workflowService: _workflowService);
   double? _tokenBalance;
   String? _currentTokenMint;
+  TokenMetadata? _currentTokenMetadata;
   final WalletService _walletService = WalletService();
   String? _walletAddress;
   Timer? _refreshTimer;
+  Timer? _balanceUpdateTimer;
 
   // Refresh every 3 seconds
   static const Duration _refreshInterval = Duration(seconds: 3);
@@ -42,6 +50,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
       final page = _pageController.page?.round() ?? 0;
       if (page != _currentPage) {
         setState(() => _currentPage = page);
+        _updateCurrentAuctionId();
         _updateBalanceForCurrentAuction();
       }
     });
@@ -54,6 +63,24 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat();
+
+    // Start periodic balance refresh with proper cleanup
+    _balanceUpdateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        _updateBalanceForCurrentAuction();
+      }
+    });
+  }
+
+  void _updateCurrentAuctionId() {
+    final auctionsState = ref.read(auctionsProvider);
+    auctionsState.whenOrNull(
+      data: (auctions) {
+        if (auctions.isNotEmpty && _currentPage < auctions.length) {
+          _currentAuctionId = auctions[_currentPage].id;
+        }
+      },
+    );
   }
 
   void _startPeriodicRefresh() {
@@ -71,38 +98,58 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   }
 
   Future<void> _updateBalanceForCurrentAuction() async {
-    final auctionsState = ref.read(auctionsProvider);
-    
     if (!mounted) return;
+    
+    final auctionsState = ref.read(auctionsProvider);
     
     await auctionsState.whenOrNull(
       data: (auctions) async {
+        if (!mounted) return;
+        
         if (auctions.isEmpty || _currentPage >= auctions.length) {
           setState(() {
             _tokenBalance = null;
             _currentTokenMint = null;
+            _currentTokenMetadata = null;
           });
           return;
         }
 
         final auction = auctions[_currentPage];
-        if (auction.tokenMint != _currentTokenMint) {
-          try {
-            final balance = await _balanceService.getTokenBalance(auction.tokenMint);
-            if (mounted) {
-              setState(() {
-                _tokenBalance = balance;
-                _currentTokenMint = auction.tokenMint;
-              });
-            }
-          } catch (e) {
-            print('Error fetching balance: $e');
-            if (mounted) {
-              setState(() {
-                _tokenBalance = null;
-                _currentTokenMint = null;
-              });
-            }
+        try {
+          final balance = await _balanceService.getTokenBalance(auction.tokenMint);
+          if (!mounted) return;
+          
+          final tokens = await _tokenService.getAcceptedTokens();
+          if (!mounted) return;
+          
+          final tokenMetadata = tokens.firstWhere(
+            (token) => token.mint == auction.tokenMint,
+            orElse: () => const TokenMetadata(
+              mint: '',
+              name: 'Unknown Token',
+              symbol: '',
+              uri: '',
+              decimals: 9,
+              supply: '0',
+            ),
+          );
+          
+          if (mounted) {
+            setState(() {
+              _tokenBalance = balance;
+              _currentTokenMint = auction.tokenMint;
+              _currentTokenMetadata = tokenMetadata;
+            });
+          }
+        } catch (e) {
+          print('Error fetching balance or token metadata: $e');
+          if (mounted) {
+            setState(() {
+              _tokenBalance = null;
+              _currentTokenMint = null;
+              _currentTokenMetadata = null;
+            });
           }
         }
       },
@@ -213,6 +260,21 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   Future<void> _showBidConfirmation(BuildContext context, Auction auction) async {
     try {
       final bidService = BidService();
+      final tokenService = TokenService(workflowService: _workflowService);
+      
+      // Get token metadata
+      final tokens = await tokenService.getAcceptedTokens();
+      final tokenMetadata = tokens.firstWhere(
+        (token) => token.mint == auction.tokenMint,
+        orElse: () => TokenMetadata(
+          mint: auction.tokenMint,
+          name: 'Unknown Token',
+          symbol: '',
+          uri: '',
+          decimals: 9,
+          supply: '0',
+        ),
+      );
       
       // Create a GlobalKey to access the dialog's state
       final statusDialogKey = GlobalKey<_BidStatusDialogState>();
@@ -229,6 +291,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
       await bidService.startPlaceBidWorkflow(
         auctionAddress: auction.id,
         bidAmount: auction.currentPrice,
+        tokenMetadata: tokenMetadata,
         onStatusUpdate: (status) {
           if (!context.mounted) return;
           
@@ -244,9 +307,16 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
               ),
             );
             ref.read(auctionsProvider.notifier).refresh();
+            // Add delay before updating balance to ensure blockchain state is updated
+            Future.delayed(const Duration(seconds: 1), () {
+              _updateBalanceForCurrentAuction();
+            });
           }
         },
       );
+
+      // Update balance after workflow completes successfully
+      _updateBalanceForCurrentAuction();
     } catch (e) {
       if (context.mounted) {
         Navigator.of(context).pop(); // Close status dialog
@@ -263,6 +333,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _balanceUpdateTimer?.cancel();
     _pageController.dispose();
     _animationController.dispose();
     super.dispose();
@@ -293,14 +364,34 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
                   color: const Color(0xFFEEFC42).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: _tokenBalance != null
-                  ? Text(
-                      '${_tokenBalance!.toStringAsFixed(2)} TOKEN',
-                      style: const TextStyle(
-                        color: Color(0xFFEEFC42),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                child: _tokenBalance != null && _currentTokenMint != null
+                  ? FutureBuilder<List<TokenMetadata>>(
+                      future: _tokenService.getAcceptedTokens(),
+                      builder: (context, snapshot) {
+                        String symbol = '';
+                        if (snapshot.hasData) {
+                          final tokenMetadata = snapshot.data!.firstWhere(
+                            (token) => token.mint == _currentTokenMint,
+                            orElse: () => TokenMetadata(
+                              mint: _currentTokenMint!,
+                              name: 'Unknown Token',
+                              symbol: '',
+                              uri: '',
+                              decimals: 9,
+                              supply: '0',
+                            ),
+                          );
+                          symbol = tokenMetadata.symbol;
+                        }
+                        return Text(
+                          '${_tokenBalance!.toStringAsFixed(2)} $symbol',
+                          style: const TextStyle(
+                            color: Color(0xFFEEFC42),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        );
+                      },
                     )
                   : const Text(
                       '...',
@@ -360,9 +451,19 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
             );
           }
 
-          // Update balance for initial auction
-          if (_currentTokenMint == null) {
+          // Find index of current auction after refresh
+          if (_currentAuctionId != null) {
+            final currentIndex = auctions.indexWhere((a) => a.id == _currentAuctionId);
+            if (currentIndex != -1 && currentIndex != _currentPage) {
+              // Update page without animation if position changed
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _pageController.jumpToPage(currentIndex);
+                setState(() => _currentPage = currentIndex);
+              });
+            }
+          } else if (_currentTokenMint == null) {
             _updateBalanceForCurrentAuction();
+            _updateCurrentAuctionId();
           }
 
           return Stack(

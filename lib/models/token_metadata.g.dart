@@ -9,11 +9,11 @@ part of 'token_metadata.dart';
 _$TokenMetadataImpl _$$TokenMetadataImplFromJson(Map<String, dynamic> json) =>
     _$TokenMetadataImpl(
       mint: json['mint'] as String,
-      name: json['name'] as String,
-      symbol: json['symbol'] as String,
-      uri: json['uri'] as String,
+      name: json['name'] as String? ?? 'Unknown Token',
+      symbol: json['symbol'] as String? ?? 'UNKNOWN',
+      uri: json['uri'] as String? ?? '',
       decimals: (json['decimals'] as num).toInt(),
-      supply: json['supply'] as String,
+      supply: json['supply'] as String? ?? '0',
     );
 
 Map<String, dynamic> _$$TokenMetadataImplToJson(_$TokenMetadataImpl instance) =>

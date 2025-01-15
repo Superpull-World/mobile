@@ -7,11 +7,11 @@ part 'token_metadata.g.dart';
 class TokenMetadata with _$TokenMetadata {
   const factory TokenMetadata({
     required String mint,
-    required String name,
-    required String symbol,
-    required String uri,
+    @Default('Unknown Token') String name,
+    @Default('UNKNOWN') String symbol,
+    @Default('') String uri,
     required int decimals,
-    required String supply,
+    @Default('0') String supply,
   }) = _TokenMetadata;
 
   factory TokenMetadata.fromJson(Map<String, dynamic> json) =>

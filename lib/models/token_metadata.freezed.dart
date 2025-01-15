@@ -174,11 +174,11 @@ class __$$TokenMetadataImplCopyWithImpl<$Res>
 class _$TokenMetadataImpl implements _TokenMetadata {
   const _$TokenMetadataImpl(
       {required this.mint,
-      required this.name,
-      required this.symbol,
-      required this.uri,
+      this.name = 'Unknown Token',
+      this.symbol = 'UNKNOWN',
+      this.uri = '',
       required this.decimals,
-      required this.supply});
+      this.supply = '0'});
 
   factory _$TokenMetadataImpl.fromJson(Map<String, dynamic> json) =>
       _$$TokenMetadataImplFromJson(json);
@@ -186,14 +186,18 @@ class _$TokenMetadataImpl implements _TokenMetadata {
   @override
   final String mint;
   @override
+  @JsonKey()
   final String name;
   @override
+  @JsonKey()
   final String symbol;
   @override
+  @JsonKey()
   final String uri;
   @override
   final int decimals;
   @override
+  @JsonKey()
   final String supply;
 
   @override
@@ -239,11 +243,11 @@ class _$TokenMetadataImpl implements _TokenMetadata {
 abstract class _TokenMetadata implements TokenMetadata {
   const factory _TokenMetadata(
       {required final String mint,
-      required final String name,
-      required final String symbol,
-      required final String uri,
+      final String name,
+      final String symbol,
+      final String uri,
       required final int decimals,
-      required final String supply}) = _$TokenMetadataImpl;
+      final String supply}) = _$TokenMetadataImpl;
 
   factory _TokenMetadata.fromJson(Map<String, dynamic> json) =
       _$TokenMetadataImpl.fromJson;

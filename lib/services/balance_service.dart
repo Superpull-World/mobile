@@ -9,17 +9,14 @@ class BalanceService {
   late final Ed25519HDKeyPair _keypair;
   bool _isInitialized = false;
 
-  // New token mint address
-  static const String _tokenMint = '2u7t1UoiYF59GS3dYRQHVdAt9e1uap2WqKqKM7FbWFDv';
-
   BalanceService._({
     required SolanaClient client,
   }) : _client = client;
 
   factory BalanceService() {
     final client = SolanaClient(
-      rpcUrl: Uri.parse('https://api.devnet.solana.com'),
-      websocketUrl: Uri.parse('wss://api.devnet.solana.com'),
+      rpcUrl: Uri.parse('https://devnet.helius-rpc.com/?api-key=f9b5cf36-6e05-42a4-aeea-73811c1fc0dc'),
+      websocketUrl: Uri.parse('wss://devnet.helius-rpc.com/?api-key=f9b5cf36-6e05-42a4-aeea-73811c1fc0dc'),
     );
     return BalanceService._(client: client);
   }

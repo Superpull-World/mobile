@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/auction_service.dart';
+import 'package:superpull_mobile/services/token_service.dart';
+import 'package:superpull_mobile/services/workflow_service.dart';
+import 'package:superpull_mobile/models/token_metadata.dart';
 import 'dart:async';
 
 final auctionsProvider = AsyncNotifierProvider<AuctionsNotifier, List<Auction>>(() {
@@ -11,6 +14,7 @@ class AuctionsNotifier extends AsyncNotifier<List<Auction>> {
   Timer? _refreshTimer;
   static const Duration _refreshInterval = Duration(seconds: 5);
   final _auctionService = AuctionService();
+  final _tokenService = TokenService(workflowService: WorkflowService());
 
   @override
   Future<List<Auction>> build() async {
@@ -66,6 +70,9 @@ class AuctionsNotifier extends AsyncNotifier<List<Auction>> {
 
   Future<List<Auction>> _fetchAuctions() async {
     try {
+      // Get all accepted tokens first
+      final acceptedTokens = await _tokenService.getAcceptedTokens();
+
       // Start the workflow
       final workflowId = await _auctionService.startGetAuctionsWorkflow(limit: 50, offset: 0);
       if (workflowId == null) {
@@ -106,9 +113,35 @@ class AuctionsNotifier extends AsyncNotifier<List<Auction>> {
           print('Found ${auctionsList.length} auctions');
 
           // Parse and sort auctions
-          final List<Auction> parsedAuctions = auctionsList
-              .map((auction) => Auction.fromJson(auction as Map<String, dynamic>))
-              .toList();
+          final List<Auction> parsedAuctions = [];
+          for (final auction in auctionsList) {
+            try {
+              final auctionData = auction as Map<String, dynamic>;
+              final tokenMint = auctionData['tokenMint'] as String;
+              
+              // Find token metadata for this auction
+              final tokenMetadata = acceptedTokens.firstWhere(
+                (token) => token.mint == tokenMint,
+                orElse: () => TokenMetadata(
+                  mint: tokenMint,
+                  name: 'Unknown Token',
+                  symbol: '',
+                  uri: '',
+                  decimals: 9,
+                  supply: '0',
+                ),
+              );
+              
+              // Add decimals to the auction data
+              auctionData['decimals'] = tokenMetadata.decimals;
+              
+              parsedAuctions.add(Auction.fromJson(auctionData));
+            } catch (e) {
+              print('Error parsing auction: $e');
+              // Continue with next auction
+              continue;
+            }
+          }
 
           return _sortAuctions(parsedAuctions);
         }

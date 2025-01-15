@@ -1,8 +1,11 @@
 import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
+import 'package:superpull_mobile/services/token_service.dart';
+import 'package:superpull_mobile/models/token_metadata.dart';
 
 class AuctionService {
   final _workflowService = WorkflowService();
+  final _tokenService = TokenService(workflowService: WorkflowService());
 
   Future<String?> startGetAuctionsWorkflow({
     required int limit,
@@ -64,8 +67,31 @@ class AuctionService {
 
   Future<Auction> getAuctionDetails(String workflowId) async {
     try {
+      // Get all token metadata first
+      final tokens = await _tokenService.getAcceptedTokens();
+      
+      // Get auction details from workflow
       final workflowResult = await _workflowService.queryWorkflow(workflowId, 'auctionResult');
-      return Auction.fromJson(workflowResult['auction'] as Map<String, dynamic>);
+      final auctionData = workflowResult['auction'] as Map<String, dynamic>;
+      
+      // Find the token metadata for this auction
+      final tokenMint = auctionData['tokenMint'] as String;
+      final tokenMetadata = tokens.firstWhere(
+        (token) => token.mint == tokenMint,
+        orElse: () => TokenMetadata(
+          mint: tokenMint,
+          name: 'Unknown Token',
+          symbol: 'UNKNOWN',
+          uri: '',
+          decimals: 9,
+          supply: '0',
+        ),
+      );
+      
+      // Add token metadata to auction data
+      auctionData['tokenMetadata'] = tokenMetadata.toJson();
+      
+      return Auction.fromJson(auctionData);
     } catch (e) {
       print('Error getting auction details: $e');
       throw Exception('Failed to get auction details: $e');

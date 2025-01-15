@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:solana/solana.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/wallet_service.dart';
+import 'package:superpull_mobile/models/token_metadata.dart';
 
 class BidService {
   final WorkflowService _workflowService = WorkflowService();
@@ -10,6 +12,7 @@ class BidService {
   Future<Map<String, dynamic>> startPlaceBidWorkflow({
     required String auctionAddress,
     required double bidAmount,
+    required TokenMetadata tokenMetadata,
     required Function(String) onStatusUpdate,
   }) async {
     try {
@@ -21,13 +24,16 @@ class BidService {
 
       final bidderAddress = keypair.publicKey.toBase58();
 
+      // Convert bid amount to integer before multiplication to avoid floating point precision issues
+      final rawBidAmount = (bidAmount * pow(10, tokenMetadata.decimals)).round();
+
       // Start the place bid workflow
       final result = await _workflowService.executeWorkflow(
         'placeBid',
         {
           'auctionAddress': auctionAddress,
           'bidderAddress': bidderAddress,
-          'bidAmount': bidAmount * 1e6,
+          'bidAmount': rawBidAmount,
         },
       );
 

@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import '../services/workflow_service.dart';
 import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
+import '../services/token_service.dart';
+import '../models/token_metadata.dart';
 
 class CreateAuctionPage extends StatefulWidget {
   const CreateAuctionPage({super.key});
@@ -22,10 +24,41 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
   final _workflowService = WorkflowService();
   final _walletService = WalletService();
   final _authService = AuthService();
+  final _tokenService = TokenService(workflowService: WorkflowService());
   DateTime? _saleEndDate;
   XFile? _imageFile;
   bool _isLoading = false;
   String _submissionStatus = '';
+  List<TokenMetadata>? _availableTokens;
+  TokenMetadata? _selectedToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTokens();
+  }
+
+  Future<void> _loadTokens() async {
+    try {
+      final tokens = await _tokenService.getAcceptedTokens();
+      setState(() {
+        _availableTokens = tokens;
+        // Select the first token by default if available
+        if (tokens.isNotEmpty) {
+          _selectedToken = tokens.first;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load tokens: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -102,6 +135,15 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
       );
       return;
     }
+    if (_selectedToken == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a token'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -151,6 +193,7 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
         minimumItems: int.parse(_minItemsController.text),
         deadline: _saleEndDate!,
         jwt: jwt,
+        tokenMint: _selectedToken!.mint,
         onStatusUpdate: (status) {
           if (!mounted) return;
           
@@ -341,19 +384,19 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
                     controller: _priceController,
                     style: const TextStyle(color: Colors.white),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Price (TOKEN)',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      enabledBorder: OutlineInputBorder(
+                    decoration: InputDecoration(
+                      labelText: 'Price (${_selectedToken?.symbol ?? ''})',
+                      labelStyle: const TextStyle(color: Colors.white70),
+                      enabledBorder: const OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.white24),
                       ),
-                      focusedBorder: OutlineInputBorder(
+                      focusedBorder: const OutlineInputBorder(
                         borderSide: BorderSide(color: Color(0xFFEEFC42)),
                       ),
-                      errorBorder: OutlineInputBorder(
+                      errorBorder: const OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.red),
                       ),
-                      focusedErrorBorder: OutlineInputBorder(
+                      focusedErrorBorder: const OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.red),
                       ),
                     ),
@@ -472,6 +515,48 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
                         ],
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 24),
+                  DropdownButtonFormField<TokenMetadata>(
+                    value: _selectedToken,
+                    style: const TextStyle(color: Colors.white),
+                    dropdownColor: const Color(0xFF1A1A1A),
+                    decoration: const InputDecoration(
+                      labelText: 'Token',
+                      labelStyle: TextStyle(color: Colors.white70),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white24),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Color(0xFFEEFC42)),
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.red),
+                      ),
+                      focusedErrorBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.red),
+                      ),
+                    ),
+                    items: _availableTokens?.map((token) {
+                      return DropdownMenuItem<TokenMetadata>(
+                        value: token,
+                        child: Text(
+                          '${token.name} (${token.symbol})',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }).toList() ?? [],
+                    onChanged: (TokenMetadata? token) {
+                      setState(() {
+                        _selectedToken = token;
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null) {
+                        return 'Please select a token';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton(

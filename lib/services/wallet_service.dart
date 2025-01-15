@@ -12,8 +12,8 @@ class WalletService {
   static const String _firstTimeKey = 'first_time_key';
   final _storage = const FlutterSecureStorage();
   final _client = SolanaClient(
-    rpcUrl: Uri.parse('https://api.devnet.solana.com'),
-    websocketUrl: Uri.parse('wss://api.devnet.solana.com'),
+    rpcUrl: Uri.parse('https://devnet.helius-rpc.com/?api-key=f9b5cf36-6e05-42a4-aeea-73811c1fc0dc'),
+    websocketUrl: Uri.parse('wss://devnet.helius-rpc.com/?api-key=f9b5cf36-6e05-42a4-aeea-73811c1fc0dc'),
   );
 
   Future<bool> isFirstTime() async {

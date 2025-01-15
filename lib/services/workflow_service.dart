@@ -64,6 +64,7 @@ class WorkflowService {
     required int minimumItems,
     required DateTime deadline,
     required String jwt,
+    required String tokenMint,
     required Function(String) onStatusUpdate,
   }) async {
     try {
@@ -82,6 +83,7 @@ class WorkflowService {
           'minimumItems': minimumItems,
           'deadline': unixTimestamp,
           'jwt': jwt,
+          'tokenMint': tokenMint,
         },
       );
 
