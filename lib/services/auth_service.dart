@@ -4,10 +4,11 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:solana/solana.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'wallet_service.dart';
 
 class AuthService {
-  final String _baseUrl = 'http://localhost:5050/api';
+  final String _baseUrl;
   final WalletService _walletService = WalletService();
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   static const String _jwtKey = 'jwt_token';
@@ -18,7 +19,7 @@ class AuthService {
   // Renew JWT if it expires in less than 10 minutes
   static const Duration _renewThreshold = Duration(minutes: 10);
 
-  AuthService() {
+  AuthService() : _baseUrl = const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:5050') + '/api' {
     _startPeriodicCheck();
   }
 

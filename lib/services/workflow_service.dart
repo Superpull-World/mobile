@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 class WorkflowService {
-  static const String baseUrl = 'http://localhost:5050/api';
+  final String baseUrl;
+
+  WorkflowService() : baseUrl = const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:5050') + '/api';
 
   void _logRequest(String method, String url, Map<String, dynamic>? body) {
     print('🌐 API Request: $method $url');
@@ -21,7 +24,7 @@ class WorkflowService {
     Map<String, dynamic> input,
   ) async {
     try {
-      const url = '$baseUrl/workflow/start';
+      final url = '$baseUrl/workflow/start';
       final body = {
         'name': workflowType,
         'args': [input],
@@ -169,12 +172,13 @@ class WorkflowService {
 
   Future<Map<String, dynamic>> queryWorkflow(String workflowId, String queryName) async {
     try {
+      final url = '$baseUrl/workflow/query?id=$workflowId&query=$queryName';
       final response = await http.get(
-        Uri.parse('$baseUrl/workflow/query?id=$workflowId&query=$queryName'),
+        Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
       );
 
-      _logResponse('GET', '$baseUrl/workflow/query?id=$workflowId&query=$queryName', response);
+      _logResponse('GET', url, response);
 
       if (response.statusCode != 200) {
         throw Exception('Failed to query workflow: ${response.body}');
@@ -193,8 +197,9 @@ class WorkflowService {
     dynamic signalData,
   ) async {
     try {
+      final url = '$baseUrl/workflow/signal';
       final response = await http.post(
-        Uri.parse('$baseUrl/workflow/signal'),
+        Uri.parse(url),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'workflowId': workflowId,
@@ -203,7 +208,7 @@ class WorkflowService {
         }),
       );
 
-      _logResponse('POST', '$baseUrl/workflow/signal', response);
+      _logResponse('POST', url, response);
 
       if (response.statusCode != 200) {
         throw Exception('Failed to signal workflow: ${response.body}');
