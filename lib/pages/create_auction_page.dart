@@ -570,7 +570,7 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
                       ),
                     ),
                     child: const Text(
-                      'Create Auction',
+                      'Dream it',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
