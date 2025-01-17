@@ -9,14 +9,24 @@ class WorkflowService {
   WorkflowService() : baseUrl = const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:5050') + '/api';
 
   void _logRequest(String method, String url, Map<String, dynamic>? body) {
-    print('🌐 API Request: $method $url');
-    if (body != null) print('📦 Request body: ${jsonEncode(body)}');
+    if (kDebugMode) {
+      print('🔄 $method ${url.split('/').last}${body != null ? ' with payload' : ''}');
+    }
   }
 
-  void _logResponse(String method, String url, http.Response response) {
-    print('✅ API Response: $method $url');
-    print('📄 Status: ${response.statusCode}');
-    print('📄 Body: ${response.body}');
+  void _logResponse(String method, String url, http.Response response, {bool verbose = false}) {
+    if (!kDebugMode) return;
+    
+    if (verbose) {
+      print('✅ $method ${url.split('/').last}: ${response.statusCode}');
+      print('📄 ${response.body}');
+    } else {
+      final data = json.decode(response.body);
+      final status = data['status']?['name'] as String?;
+      if (status != null) {
+        print('✅ $method ${url.split('/').last}: $status');
+      }
+    }
   }
 
   Future<Map<String, dynamic>> executeWorkflow(
@@ -178,7 +188,8 @@ class WorkflowService {
         headers: {'Content-Type': 'application/json'},
       );
 
-      _logResponse('GET', url, response);
+      // Only log verbose output for non-status queries
+      _logResponse('GET', url, response, verbose: queryName != 'status');
 
       if (response.statusCode != 200) {
         throw Exception('Failed to query workflow: ${response.body}');

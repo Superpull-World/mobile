@@ -1,20 +1,21 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/workflow_service.dart';
 import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
-import '../services/token_service.dart';
+import '../providers/token_provider.dart';
 import '../models/token_metadata.dart';
 
-class CreateAuctionPage extends StatefulWidget {
+class CreateAuctionPage extends ConsumerStatefulWidget {
   const CreateAuctionPage({super.key});
 
   @override
-  State<CreateAuctionPage> createState() => _CreateAuctionPageState();
+  ConsumerState<CreateAuctionPage> createState() => _CreateAuctionPageState();
 }
 
-class _CreateAuctionPageState extends State<CreateAuctionPage> {
+class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -24,40 +25,16 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
   final _workflowService = WorkflowService();
   final _walletService = WalletService();
   final _authService = AuthService();
-  final _tokenService = TokenService(workflowService: WorkflowService());
   DateTime? _saleEndDate;
   XFile? _imageFile;
   bool _isLoading = false;
   String _submissionStatus = '';
-  List<TokenMetadata>? _availableTokens;
   TokenMetadata? _selectedToken;
 
   @override
   void initState() {
     super.initState();
-    _loadTokens();
-  }
-
-  Future<void> _loadTokens() async {
-    try {
-      final tokens = await _tokenService.getAcceptedTokens();
-      setState(() {
-        _availableTokens = tokens;
-        // Select the first token by default if available
-        if (tokens.isNotEmpty) {
-          _selectedToken = tokens.first;
-        }
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to load tokens: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    // No need to load tokens here anymore as we'll use the provider
   }
 
   @override
@@ -247,6 +224,8 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokensState = ref.watch(acceptedTokensProvider);
+    
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -537,15 +516,19 @@ class _CreateAuctionPageState extends State<CreateAuctionPage> {
                         borderSide: BorderSide(color: Colors.red),
                       ),
                     ),
-                    items: _availableTokens?.map((token) {
-                      return DropdownMenuItem<TokenMetadata>(
-                        value: token,
-                        child: Text(
-                          '${token.name} (${token.symbol})',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      );
-                    }).toList() ?? [],
+                    items: tokensState.when(
+                      data: (tokens) => tokens.map((token) {
+                        return DropdownMenuItem<TokenMetadata>(
+                          value: token,
+                          child: Text(
+                            '${token.name} (${token.symbol})',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        );
+                      }).toList(),
+                      loading: () => [],
+                      error: (_, __) => [],
+                    ),
                     onChanged: (TokenMetadata? token) {
                       setState(() {
                         _selectedToken = token;

@@ -1,112 +1,94 @@
+import 'dart:convert';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
+import 'package:superpull_mobile/models/token_metadata.dart';
+import 'package:superpull_mobile/services/refresh_manager.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/token_service.dart';
-import 'package:superpull_mobile/models/token_metadata.dart';
+import 'package:superpull_mobile/providers/token_provider.dart';
 
-class AuctionService {
-  final _workflowService = WorkflowService();
-  final _tokenService = TokenService(workflowService: WorkflowService());
+class AuctionListData {
+  final List<Auction> auctions;
+  final int total;
 
-  Future<String?> startGetAuctionsWorkflow({
-    required int limit,
-    required int offset,
+  const AuctionListData({
+    required this.auctions,
+    required this.total,
+  });
+}
+
+class AuctionService with RefreshManager<AuctionListData> {
+  final WorkflowService _workflowService;
+  final TokenService _tokenService;
+  final Ref _ref;
+
+  AuctionService({
+    required WorkflowService workflowService,
+    required TokenService tokenService,
+    required Ref ref,
+  }) : _workflowService = workflowService,
+       _tokenService = tokenService,
+       _ref = ref {
+    // Start periodic refresh every 30 seconds
+    startPeriodicRefresh(
+      () => getAuctions(page: 1, limit: 10),
+      interval: const Duration(seconds: 30),
+    );
+  }
+
+  Future<AuctionListData> getAuctions({
+    int page = 1,
+    int limit = 10,
+    String? status,
   }) async {
     try {
+      print('🌐 Executing workflow for page $page (limit: $limit)');
       final result = await _workflowService.executeWorkflow(
         'getAuctions',
         {
+          'page': page,
           'limit': limit,
-          'offset': offset,
+          if (status != null) 'status': status,
         },
       );
-      return result['id'] as String?;
-    } catch (e) {
-      print('Error starting auctions workflow: $e');
-      return null;
-    }
-  }
-
-  Future<WorkflowStatus> getWorkflowStatus(String workflowId) async {
-    try {
-      final result = await _workflowService.queryWorkflow(workflowId, 'status');
       
-      final statusData = result['queries']?['status'];
-      if (statusData == null) {
-        return WorkflowStatus(
-          isCompleted: false,
-          isFailed: false,
-          message: 'pending',
-        );
+      final workflowId = result['id'] as String;
+      
+      // Poll for workflow result
+      while (true) {
+        final workflowResult = await _workflowService.queryWorkflow(workflowId, 'auctionsResult');
+        final status = workflowResult['queries']?['status'] as String?;
+        
+        if (status == 'completed') {
+          final auctionsData = workflowResult['queries']?['auctionsResult'] as Map<String, dynamic>;
+          final List<dynamic> auctionsList = auctionsData['auctions'] as List<dynamic>;
+          final int total = auctionsData['total'] as int;
+
+          final auctions = await Future.wait(
+            auctionsList.map((auction) async {
+              final auctionData = auction as Map<String, dynamic>;
+              final tokenMint = auctionData['tokenMint'] as String;
+              
+              // Get token metadata from provider
+              final tokenMetadata = _ref.read(tokenByMintProvider(tokenMint));
+              if (tokenMetadata != null) {
+                auctionData['tokenMetadata'] = tokenMetadata.toJson();
+              }
+              
+              return Auction.fromJson(auctionData);
+            }),
+          );
+
+          return AuctionListData(auctions: auctions, total: total);
+        } else if (status == 'failed') {
+          throw Exception('Workflow failed: ${workflowResult['queries']?['error']}');
+        }
+        
+        await Future.delayed(const Duration(seconds: 1));
       }
-
-      final status = statusData.toString();
-      return WorkflowStatus(
-        isCompleted: status == 'completed',
-        isFailed: status == 'failed',
-        message: status,
-      );
     } catch (e) {
-      print('Error getting workflow status: $e');
-      return WorkflowStatus(
-        isCompleted: false,
-        isFailed: true,
-        message: e.toString(),
-      );
+      print('❌ Error fetching auctions: $e');
+      throw Exception('Failed to fetch auctions: $e');
     }
   }
-
-  Future<Map<String, dynamic>> getWorkflowResult(String workflowId) async {
-    try {
-      final result = await _workflowService.queryWorkflow(workflowId, 'auctionsResult');
-      return result;
-    } catch (e) {
-      print('Error getting workflow result: $e');
-      return {'queries': null};
-    }
-  }
-
-  Future<Auction> getAuctionDetails(String workflowId) async {
-    try {
-      // Get all token metadata first
-      final tokens = await _tokenService.getAcceptedTokens();
-      
-      // Get auction details from workflow
-      final workflowResult = await _workflowService.queryWorkflow(workflowId, 'auctionResult');
-      final auctionData = workflowResult['auction'] as Map<String, dynamic>;
-      
-      // Find the token metadata for this auction
-      final tokenMint = auctionData['tokenMint'] as String;
-      final tokenMetadata = tokens.firstWhere(
-        (token) => token.mint == tokenMint,
-        orElse: () => TokenMetadata(
-          mint: tokenMint,
-          name: 'Unknown Token',
-          symbol: 'UNKNOWN',
-          uri: '',
-          decimals: 9,
-          supply: '0',
-        ),
-      );
-      
-      // Add token metadata to auction data
-      auctionData['tokenMetadata'] = tokenMetadata.toJson();
-      
-      return Auction.fromJson(auctionData);
-    } catch (e) {
-      print('Error getting auction details: $e');
-      throw Exception('Failed to get auction details: $e');
-    }
-  }
-}
-
-class WorkflowStatus {
-  final bool isCompleted;
-  final bool isFailed;
-  final String message;
-
-  const WorkflowStatus({
-    required this.isCompleted,
-    required this.isFailed,
-    required this.message,
-  });
 } 

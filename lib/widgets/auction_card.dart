@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/auction.dart';
 import '../theme/app_theme.dart';
-import '../services/balance_service.dart';
-import '../services/wallet_service.dart';
-import '../services/bid_service.dart';
-import '../services/token_service.dart';
-import '../services/workflow_service.dart';
 import '../models/token_metadata.dart';
+import '../models/balance_data.dart';
+import '../providers/token_provider.dart';
+import '../providers/balance_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../providers/auctions_provider.dart';
+import '../services/bid_service.dart';
+import 'dart:math';
+import 'package:url_launcher/url_launcher.dart';
 
 class AuctionCard extends ConsumerStatefulWidget {
   final Auction auction;
@@ -20,28 +22,21 @@ class AuctionCard extends ConsumerStatefulWidget {
 }
 
 class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProviderStateMixin {
-  final _balanceService = BalanceService();
-  final _workflowService = WorkflowService();
-  final _tokenService = TokenService(workflowService: WorkflowService());
   bool _isDragging = false;
   double _dragExtent = 0;
   static const _dragThreshold = 100.0;
   late final AnimationController _arrowAnimationController;
   late final Animation<double> _arrowAnimation;
   late final Animation<double> _fadeAnimation;
-  TokenMetadata? _tokenMetadata;
 
   @override
   void initState() {
     super.initState();
-    _initializeBalanceService();
-    _loadTokenMetadata();
     _arrowAnimationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     )..repeat();
 
-    // Simple downward motion from 0 to 24
     _arrowAnimation = Tween<double>(
       begin: 0,
       end: 24,
@@ -50,7 +45,6 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
       curve: const Interval(0.0, 0.5, curve: Curves.easeInOut),
     ));
 
-    // Fade out during the downward motion
     _fadeAnimation = Tween<double>(
       begin: 1.0,
       end: 0.0,
@@ -60,38 +54,6 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     ));
   }
 
-  Future<void> _initializeBalanceService() async {
-    final keypair = await WalletService().getKeypair();
-    if (keypair != null) {
-      await _balanceService.initialize(keypair);
-    }
-  }
-
-  Future<void> _loadTokenMetadata() async {
-    try {
-      final tokens = await _tokenService.getAcceptedTokens();
-      final tokenMetadata = tokens.firstWhere(
-        (token) => token.mint == widget.auction.tokenMint,
-        orElse: () => TokenMetadata(
-          mint: widget.auction.tokenMint,
-          name: 'Unknown Token',
-          symbol: '',
-          uri: '',
-          decimals: 9,
-          supply: '0',
-        ),
-      );
-      
-      if (mounted) {
-        setState(() {
-          _tokenMetadata = tokenMetadata;
-        });
-      }
-    } catch (e) {
-      print('Error loading token metadata: $e');
-    }
-  }
-
   @override
   void dispose() {
     _arrowAnimationController.dispose();
@@ -99,296 +61,346 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
   }
 
   Future<void> _showBidConfirmation() async {
-    // Show modal immediately
     if (!mounted) return;
+
+    // Start balance refresh in the background before showing the modal
+    Future.microtask(() async {
+      try {
+        final balanceService = ref.read(balanceServiceProvider);
+        await balanceService.getBalances(forceRefresh: true);
+      } catch (e) {
+        print('❌ Error refreshing balance before bid: $e');
+      }
+    });
+
+    final tokenMetadata = ref.read(tokenByMintProvider(widget.auction.tokenMint));
+    final metadata = tokenMetadata ?? TokenMetadata(
+      mint: widget.auction.tokenMint,
+      name: 'Unknown Token',
+      symbol: '',
+      uri: '',
+      decimals: widget.auction.decimals,
+      supply: '0',
+    );
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => FutureBuilder<double>(
-        future: _balanceService.getTokenBalance(widget.auction.tokenMint),
-        builder: (context, snapshot) {
-          final tokenBalance = snapshot.data;
-          final requiredBalance = widget.auction.currentPrice;
-          // Temporarily disable balance check
-          final hasEnoughBalance = true; // tokenBalance >= requiredBalance;
+      builder: (context) => Consumer(
+        builder: (context, ref, _) {
+          final balanceState = ref.watch(balanceProvider);
+          final tokenMetadata = ref.watch(tokenByMintProvider(widget.auction.tokenMint));
+          
+          return balanceState.when(
+            data: (balanceData) {
+              final tokenBalance = (balanceData as BalanceData).tokenBalances[widget.auction.tokenMint] ?? 0.0;
+              
+              print('🔍 AuctionCard Debug:');
+              print('Token Decimals: ${metadata.decimals}');
+              print('Raw Current Price: ${widget.auction.rawCurrentPrice}');
+              print('Current Price String: ${widget.auction.currentPrice}');
+              print('Token Balance Raw: ${(tokenBalance * pow(10, metadata.decimals)).round()}');
+              
+              // Calculate raw values using the raw price from auction
+              final rawTokenBalance = (tokenBalance * pow(10, metadata.decimals)).round();
+              final hasEnoughBalance = rawTokenBalance >= widget.auction.rawCurrentPrice;
 
-          return Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // Calculate difference in raw values and format for display
+              final rawDifference = widget.auction.rawCurrentPrice - rawTokenBalance;
+              final formattedBalance = (rawTokenBalance / pow(10, metadata.decimals)).toString().replaceAll(RegExp(r'\.?0*$'), '');
+              final formattedDifference = (rawDifference / pow(10, metadata.decimals)).toString().replaceAll(RegExp(r'\.?0*$'), '');
+              
+              print('Raw Token Balance: $rawTokenBalance');
+              print('Raw Difference: $rawDifference');
+              print('Formatted Balance: $formattedBalance');
+              print('Formatted Difference: $formattedDifference');
+
+              return Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      'Confirm Bid',
-                      style: TextStyle(
-                        color: Color(0xFFEEFC42),
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Color(0xFFEEFC42)),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'You are about to bid on:',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.auction.name,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Color(0xFFEEFC42).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Current Price:', style: TextStyle(color: Colors.white70)),
-                          Text(
-                            '${widget.auction.currentPrice.toStringAsFixed(2)} ${_tokenMetadata?.symbol ?? ''}',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Your Balance:', style: TextStyle(color: Colors.white70)),
-                          if (snapshot.connectionState == ConnectionState.waiting)
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-                              ),
-                            )
-                          else if (snapshot.hasError)
-                            Text(
-                              'Error loading balance',
-                              style: TextStyle(color: Colors.red),
-                            )
-                          else
-                            Text(
-                              '${tokenBalance?.toStringAsFixed(2) ?? '0.00'} ${_tokenMetadata?.symbol ?? ''}',
-                              style: TextStyle(
-                                color: hasEnoughBalance ? Color(0xFFEEFC42) : Colors.red,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (!hasEnoughBalance) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'Insufficient balance',
-                    style: TextStyle(color: Colors.red, fontSize: 16),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'You need ${(requiredBalance - (tokenBalance ?? 0)).toStringAsFixed(2)} ${_tokenMetadata?.symbol ?? ''} to place this bid.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Top-up feature coming soon')),
-                      );
-                    },
-                    icon: const Icon(Icons.account_balance_wallet),
-                    label: const Text('Top Up Wallet'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFFEEFC42),
-                      foregroundColor: Colors.black,
-                    ),
-                  ),
-                ] else if (widget.auction.currentSupply >= widget.auction.maxSupply) ...[
-                  const SizedBox(height: 24),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(
-                          Icons.warning_amber_rounded,
-                          color: Colors.red,
-                          size: 48,
-                        ),
-                        const SizedBox(height: 12),
                         Text(
-                          'Maximum Supply Reached',
+                          'Confirm Bid',
                           style: TextStyle(
-                            color: Colors.red,
-                            fontSize: 18,
+                            color: Color(0xFFEEFC42),
+                            fontSize: 24,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'This item has reached its maximum supply of ${widget.auction.maxSupply} items.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.red.shade700),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Color(0xFFEEFC42)),
+                          onPressed: () => Navigator.pop(context),
                         ),
                       ],
                     ),
-                  ),
-                ] else ...[
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () async {
-                      final bidService = BidService();
-                      try {
-                        showDialog(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (context) => Center(
-                            child: Card(
-                              color: Colors.black,
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    CircularProgressIndicator(
-                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      'Initializing bid...',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ],
+                    const SizedBox(height: 16),
+                    Text(
+                      'You are about to bid on:',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.auction.name,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Color(0xFFEEFC42).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Current Price:', style: TextStyle(color: Colors.white70)),
+                              Text(
+                                '${widget.auction.currentPrice} ${metadata.symbol}',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Your Balance:', style: TextStyle(color: Colors.white70)),
+                              Text(
+                                '$formattedBalance ${metadata.symbol}',
+                                style: TextStyle(
+                                  color: hasEnoughBalance ? Color(0xFFEEFC42) : Colors.red,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!hasEnoughBalance) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Insufficient balance',
+                        style: TextStyle(color: Colors.red, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'You need $formattedDifference ${metadata.symbol} to place this bid.',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Top-up feature coming soon')),
+                          );
+                        },
+                        icon: const Icon(Icons.account_balance_wallet),
+                        label: const Text('Top Up Wallet'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Color(0xFFEEFC42),
+                          foregroundColor: Colors.black,
+                        ),
+                      ),
+                    ] else if (widget.auction.currentSupply >= widget.auction.maxSupply) ...[
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                              color: Colors.red,
+                              size: 48,
                             ),
-                          ),
-                        );
-
-                        await bidService.startPlaceBidWorkflow(
-                          auctionAddress: widget.auction.id,
-                          bidAmount: widget.auction.currentPrice,
-                          tokenMetadata: _tokenMetadata ?? TokenMetadata(
-                            mint: widget.auction.tokenMint,
-                            name: 'Unknown Token',
-                            symbol: '',
-                            uri: '',
-                            decimals: 9,
-                            supply: '0',
-                          ),
-                          onStatusUpdate: (status) {
-                            if (!context.mounted) return;
-                            
-                            Navigator.of(context).pop(); // Remove previous status dialog
-                            
-                            if (status == 'Bid placed successfully') {
-                              Navigator.of(context).pop(); // Close bid modal
-                              
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Bid placed successfully!'),
-                                  backgroundColor: Colors.green,
-                                ),
-                              );
-                              
-                              // Refresh the auctions
-                              ref.read(auctionsProvider.notifier).refresh();
-                            } else {
-                              // Show new status dialog
-                              showDialog(
-                                context: context,
-                                barrierDismissible: false,
-                                builder: (context) => Center(
-                                  child: Card(
-                                    color: Colors.black,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(24),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          CircularProgressIndicator(
-                                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          Text(
-                                            status,
-                                            style: TextStyle(color: Colors.white),
-                                          ),
-                                        ],
-                                      ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Maximum Supply Reached',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'This item has reached its maximum supply of ${widget.auction.maxSupply} items.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.red.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 24),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          return ElevatedButton(
+                            onPressed: () async {
+                              try {
+                                // Show loading state
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (context) => AlertDialog(
+                                    backgroundColor: Colors.black,
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        CircularProgressIndicator(
+                                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                                        ),
+                                        SizedBox(height: 16),
+                                        Text(
+                                          'Placing your bid...',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                              );
-                            }
-                          },
-                        );
-                      } catch (e) {
-                        if (context.mounted) {
-                          Navigator.of(context).pop(); // Close status dialog
-                          Navigator.of(context).pop(); // Close bid modal
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to place bid: $e'),
-                              backgroundColor: Colors.red,
+                                );
+
+                                final bidService = BidService(ref: ref);
+                                await bidService.placeBid(widget.auction);
+
+                                // Store refs before the async gap
+                                final auctionsNotifier = ref.read(auctionsProvider.notifier);
+                                final balanceNotifier = ref.read(balanceProvider.notifier);
+
+                                if (mounted) {
+                                  // First refresh the data
+                                  await auctionsNotifier.refreshAfterBid();
+                                  await balanceNotifier.refresh();
+
+                                  // Then close the dialogs and show success message
+                                  Navigator.pop(context); // Close loading dialog
+                                  Navigator.pop(context); // Close bid confirmation modal
+                                  
+                                  // Show success message
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Bid placed successfully')),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  Navigator.pop(context); // Close loading dialog
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Failed to place bid: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color(0xFFEEFC42),
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
                             ),
+                            child: const Text('Place Bid'),
                           );
-                        }
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFFEEFC42),
-                      foregroundColor: Colors.black,
-                    ),
-                    child: const Text('Place Bid'),
-                  ),
-                ],
-              ],
-            ),
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+            loading: () => Center(child: CircularProgressIndicator()),
+            error: (_, __) => Center(child: Text('Error loading balance')),
           );
         },
       ),
     );
   }
 
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Graduated':
+        return Colors.green;
+      case 'Active':
+        return const Color(0xFFEEFC42);
+      default:
+        return Colors.red;
+    }
+  }
+
+  double _getTimeProgress() {
+    final now = DateTime.now();
+    final end = widget.auction.saleEndDate;
+    final duration = end.difference(now);
+    
+    // If past deadline, return 1.0 (100%)
+    if (duration.isNegative) return 1.0;
+    
+    // Calculate progress based on a 24-hour window
+    const totalDuration = Duration(hours: 24);
+    final progress = 1.0 - (duration.inMilliseconds / totalDuration.inMilliseconds);
+    
+    // Clamp between 0 and 1
+    return progress.clamp(0.0, 1.0);
+  }
+
+  String _formatTimeRemaining() {
+    final now = DateTime.now();
+    final end = widget.auction.saleEndDate;
+    final duration = end.difference(now);
+    
+    if (duration.isNegative) return 'Ended';
+    
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    
+    if (hours > 0) {
+      return '${hours}h ${minutes}m left';
+    } else if (minutes > 0) {
+      return '${minutes}m left';
+    } else {
+      return 'Ending soon';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final tokenMetadata = ref.watch(tokenByMintProvider(widget.auction.tokenMint));
+    final metadata = tokenMetadata ?? TokenMetadata(
+      mint: widget.auction.tokenMint,
+      name: 'Unknown Token',
+      symbol: '',
+      uri: '',
+      decimals: widget.auction.decimals,
+      supply: '0',
+    );
     final theme = Theme.of(context);
-    final tokenSymbol = _tokenMetadata?.symbol ?? '';
+    
+    print('🔍 AuctionCard Build Debug:');
+    print('Token Decimals: ${metadata.decimals}');
+    print('Raw Current Price: ${widget.auction.rawCurrentPrice}');
+    print('Current Price String: ${widget.auction.currentPrice}');
+    print('Token Metadata: $metadata');
     
     return GestureDetector(
       onVerticalDragStart: (_) {
@@ -403,6 +415,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
         setState(() {
           _dragExtent += details.primaryDelta ?? 0;
           if (_dragExtent < 0) _dragExtent = 0;
+          if (_dragExtent > _dragThreshold) _dragExtent = _dragThreshold;
         });
       },
       onVerticalDragEnd: (_) {
@@ -489,7 +502,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              '${widget.auction.currentPrice.toStringAsFixed(2)} ${_tokenMetadata?.symbol ?? ''}',
+                              '${widget.auction.currentPrice} ${metadata.symbol}',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -500,12 +513,42 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'by ${widget.auction.authority}',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white70,
-                        ),
+                      Row(
+                        children: [
+                          Text(
+                            'ID: ',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () async {
+                              final url = 'https://explorer.solana.com/address/${widget.auction.id}';
+                              if (await canLaunchUrl(Uri.parse(url))) {
+                                await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                              }
+                            },
+                            child: Row(
+                              children: [
+                                Text(
+                                  '${widget.auction.id.substring(0, 4)}...${widget.auction.id.substring(widget.auction.id.length - 4)}',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: const Color(0xFFEEFC42),
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.open_in_new,
+                                  size: 14,
+                                  color: Color(0xFFEEFC42),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -573,6 +616,26 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                 ),
                               ),
                             ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total Value Locked:',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          Text(
+                            '${widget.auction.totalValueLocked} ${metadata.symbol}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                              color: const Color(0xFFEEFC42),
+                            ),
                           ),
                         ],
                       ),
@@ -673,51 +736,5 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
         ],
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'Graduated':
-        return Colors.green;
-      case 'Active':
-        return const Color(0xFFEEFC42);
-      default:
-        return Colors.red;
-    }
-  }
-
-  double _getTimeProgress() {
-    final now = DateTime.now();
-    final end = widget.auction.saleEndDate;
-    final duration = end.difference(now);
-    
-    // If past deadline, return 1.0 (100%)
-    if (duration.isNegative) return 1.0;
-    
-    // Calculate progress based on a 24-hour window
-    const totalDuration = Duration(hours: 24);
-    final progress = 1.0 - (duration.inMilliseconds / totalDuration.inMilliseconds);
-    
-    // Clamp between 0 and 1
-    return progress.clamp(0.0, 1.0);
-  }
-
-  String _formatTimeRemaining() {
-    final now = DateTime.now();
-    final end = widget.auction.saleEndDate;
-    final duration = end.difference(now);
-    
-    if (duration.isNegative) return 'Ended';
-    
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    
-    if (hours > 0) {
-      return '${hours}h ${minutes}m left';
-    } else if (minutes > 0) {
-      return '${minutes}m left';
-    } else {
-      return 'Ending soon';
-    }
   }
 } 

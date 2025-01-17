@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import '../providers/app_init_provider.dart';
 import 'auctions_page.dart';
 
 class WelcomePage extends ConsumerStatefulWidget {
@@ -31,34 +32,38 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
 
       // Check if we already have a valid JWT
       final hasJwt = await authService.isAuthenticated();
-      if (hasJwt) {
-        if (mounted) {
-          setState(() {
-            _isAuthenticating = false;
-            _isAuthenticated = true;
-          });
-          return;
+      String? jwt;
+      
+      if (!hasJwt) {
+        // Check if first time and create wallet if needed
+        final isFirst = await walletService.isFirstTime();
+        if (isFirst) {
+          await walletService.createWallet();
+          await walletService.setFirstTime(false);
         }
-      }
 
-      // Check if first time and create wallet if needed
-      final isFirst = await walletService.isFirstTime();
-      if (isFirst) {
-        await walletService.createWallet();
-        await walletService.setFirstTime(false);
-      }
-
-      // Authenticate with the server
-      final jwt = await authService.authenticate();
-      if (jwt == null) {
-        throw Exception('Authentication failed');
+        // Authenticate with the server
+        jwt = await authService.authenticate();
+        if (jwt == null) {
+          throw Exception('Authentication failed');
+        }
       }
 
       if (mounted) {
         setState(() {
-          _isFirstTime = isFirst;
+          _isFirstTime = !hasJwt;
           _isAuthenticating = false;
           _isAuthenticated = true;
+        });
+        
+        // Start loading app data in the background only once after authentication
+        ref.read(appInitProvider.future).catchError((error) {
+          if (mounted) {
+            setState(() {
+              _error = 'Failed to initialize: $error';
+              _isAuthenticated = false;
+            });
+          }
         });
       }
     } catch (e) {
@@ -72,6 +77,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
   }
 
   void _navigateToAuctions() {
+    // Data should already be initialized, just navigate
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -91,7 +97,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(

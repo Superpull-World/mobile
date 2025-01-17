@@ -1,20 +1,21 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:solana/solana.dart';
-import 'package:superpull_mobile/services/workflow_service.dart';
-import 'package:superpull_mobile/services/wallet_service.dart';
-import 'package:superpull_mobile/models/token_metadata.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/workflow_service.dart';
+import '../services/wallet_service.dart';
+import '../models/token_metadata.dart';
+import '../models/auction.dart';
+import '../providers/token_provider.dart';
 
 class BidService {
-  final WorkflowService _workflowService = WorkflowService();
-  final WalletService _walletService = WalletService();
+  final _workflowService = WorkflowService();
+  final _walletService = WalletService();
+  final WidgetRef _ref;
 
-  Future<Map<String, dynamic>> startPlaceBidWorkflow({
-    required String auctionAddress,
-    required double bidAmount,
-    required TokenMetadata tokenMetadata,
-    required Function(String) onStatusUpdate,
-  }) async {
+  BidService({required WidgetRef ref}) : _ref = ref;
+
+  Future<void> placeBid(Auction auction) async {
     try {
       // Get the bidder's address from wallet service
       final keypair = await _walletService.getKeypair();
@@ -23,17 +24,25 @@ class BidService {
       }
 
       final bidderAddress = keypair.publicKey.toBase58();
-
-      // Convert bid amount to integer before multiplication to avoid floating point precision issues
-      final rawBidAmount = (bidAmount * pow(10, tokenMetadata.decimals)).round();
+      
+      // Get token metadata from provider
+      final tokenMetadata = _ref.read(tokenByMintProvider(auction.tokenMint));
+      if (tokenMetadata == null) {
+        throw Exception('Token metadata not found');
+      }
+      
+      // Calculate the current raw price
+      final rawBidAmount = auction.rawCurrentPrice;
+      print('📊 Placing bid with raw amount: $rawBidAmount');
 
       // Start the place bid workflow
       final result = await _workflowService.executeWorkflow(
         'placeBid',
         {
-          'auctionAddress': auctionAddress,
+          'auctionAddress': auction.id,
           'bidderAddress': bidderAddress,
-          'bidAmount': rawBidAmount,
+          'bidAmount': rawBidAmount.toString(),
+          'tokenMint': auction.tokenMint,
         },
       );
 
@@ -51,20 +60,6 @@ class BidService {
           );
           final status = statusResult['queries']?['status'] as String? ?? 'unknown';
 
-          // Map status to user-friendly message
-          String displayStatus = switch (status) {
-            'creating-transaction' => 'Creating bid transaction...',
-            'awaiting-signature' => 'Waiting for signature...',
-            'submitting-transaction' => 'Submitting bid...',
-            'completed' => 'Bid placed successfully',
-            'failed' => 'Failed to place bid',
-            String s when s.startsWith('failed:') => s,
-            _ => status,
-          };
-
-          // Always call onStatusUpdate to ensure UI is updated
-          onStatusUpdate(displayStatus);
-
           // If we're awaiting signature and don't have the transaction yet, get it
           if (status == 'awaiting-signature' && unsignedTransaction == null) {
             final txResult = await _workflowService.queryWorkflow(
@@ -72,18 +67,20 @@ class BidService {
               'unsignedTransaction',
             );
             unsignedTransaction = txResult['queries']?['unsignedTransaction'] as String?;
-            print('unsignedTransaction: $unsignedTransaction');
+            print('🔏 Unsigned transaction received');
 
             if (unsignedTransaction != null) {
               // Sign the transaction using the wallet service
               final signedTx = await _walletService.signTransaction(unsignedTransaction);
-              print('signedTx: $signedTx');
+              print('✍️ Transaction signed');
+              
               // Send the signed transaction back to the workflow
               await _workflowService.signalWorkflow(
                 workflowId,
                 'signedTransaction',
                 signedTx,
               );
+              print('📤 Signed transaction sent to workflow');
             }
           }
 
@@ -125,19 +122,16 @@ class BidService {
         'submissionResult',
       );
 
-      return submissionResult;
+      final success = submissionResult['queries']?['submissionResult']?['success'] ?? false;
+      if (!success) {
+        throw Exception(submissionResult['queries']?['submissionResult']?['message'] ?? 'Failed to place bid');
+      }
+
+      print('✅ Bid placed successfully');
+      return; // Return normally on success
     } catch (e) {
       print('❌ Error in place bid workflow: $e');
-      throw Exception('Failed to place bid: $e');
-    }
-  }
-
-  Future<Map<String, dynamic>> getBidStatus(String workflowId) async {
-    try {
-      return await _workflowService.queryWorkflow(workflowId, 'submissionResult');
-    } catch (e) {
-      print('❌ Error getting bid status: $e');
-      throw Exception('Failed to get bid status: $e');
+      throw Exception('Failed to place bid: $e'); // Re-throw the error to be handled by the UI
     }
   }
 } 

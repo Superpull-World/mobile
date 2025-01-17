@@ -1,87 +1,85 @@
 import 'dart:convert';
 import 'package:superpull_mobile/models/token_metadata.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
+import 'package:superpull_mobile/services/refresh_manager.dart';
 
-class TokenService {
+class TokenService with RefreshManager<List<TokenMetadata>> {
   final WorkflowService _workflowService;
+  static const refreshInterval = Duration(minutes: 30);
   List<TokenMetadata>? _cachedTokens;
-  DateTime? _lastFetchTime;
-  static const cacheDuration = Duration(minutes: 5);
+  bool _isFetching = false;
 
   TokenService({required WorkflowService workflowService}) 
-      : _workflowService = workflowService;
+      : _workflowService = workflowService {
+    // Start periodic refresh every 30 minutes
+    startPeriodicRefresh(_fetchTokens, interval: refreshInterval);
+  }
 
   Future<List<TokenMetadata>> getAcceptedTokens() async {
-    print('🔄 Checking token cache status...');
+    print('🪙 Token fetch requested');
+    if (_cachedTokens != null) {
+      print('🪙 Returning cached tokens');
+      return _cachedTokens!;
+    }
     
-    // Return cached data if it's still valid
-    if (_cachedTokens != null && _lastFetchTime != null) {
-      final age = DateTime.now().difference(_lastFetchTime!);
-      if (age < cacheDuration) {
-        print('✅ Using cached tokens (age: ${age.inSeconds}s)');
-        return _cachedTokens!;
+    // If already fetching, wait for the current fetch
+    while (_isFetching) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    
+    if (_cachedTokens == null) {
+      return _fetchTokens();
+    }
+    
+    return _cachedTokens!;
+  }
+
+  Future<List<TokenMetadata>> _fetchTokens() async {
+    if (_isFetching) {
+      print('🪙 Already fetching tokens, waiting...');
+      while (_isFetching) {
+        await Future.delayed(const Duration(milliseconds: 100));
       }
-      print('⚠️ Cache expired (age: ${age.inSeconds}s), fetching fresh data...');
-    } else {
-      print('ℹ️ No cache available, fetching tokens for the first time...');
+      return _cachedTokens!;
     }
 
+    _isFetching = true;
     try {
-      print('🚀 Starting getAcceptedTokenMints workflow...');
-      // Execute the workflow
+      print('🪙 Fetching fresh token data...');
       final result = await _workflowService.executeWorkflow(
         'getAcceptedTokenMints',
         {},
       );
       
-      print('📦 Workflow response: $result');
-
-      // Wait for workflow completion and get the result
       final workflowId = result['id'] as String;
-      print('🔍 Waiting for workflow completion: $workflowId');
+      print('🪙 Waiting for workflow completion: $workflowId');
       
-      // Poll for workflow result
       while (true) {
         final workflowResult = await _workflowService.queryWorkflow(workflowId, 'tokenMintsResult');
         final status = workflowResult['queries']?['status'] as String?;
         
         if (status == 'completed') {
           final data = workflowResult['queries']?['tokenMintsResult'] as Map<String, dynamic>;
-          print('✅ Workflow completed: $data');
-          
           final List<dynamic> tokens = data['tokenMints'] as List<dynamic>;
-          print('📝 Received ${tokens.length} tokens from workflow');
+          print('🪙 Received ${tokens.length} tokens');
           
           _cachedTokens = tokens.map((json) {
-            print('🪙 Processing token: ${json['mint']}');
             return TokenMetadata.fromJson(json as Map<String, dynamic>);
           }).toList();
           
-          _lastFetchTime = DateTime.now();
-          print('💾 Updated cache with new token data');
-          
+          print('🪙 Token refresh complete');
           return _cachedTokens!;
         } else if (status == 'failed') {
           throw Exception('Workflow failed: ${workflowResult['queries']?['error']}');
         }
         
-        print('⏳ Waiting for workflow result... (status: $status)');
         await Future.delayed(const Duration(seconds: 1));
       }
     } catch (e) {
       print('❌ Error fetching tokens: $e');
-      // If we have cached data, return it even if expired
-      if (_cachedTokens != null) {
-        print('⚠️ Falling back to expired cache due to error');
-        return _cachedTokens!;
-      }
       rethrow;
+    } finally {
+      _isFetching = false;
     }
-  }
-
-  void clearCache() {
-    print('🗑️ Clearing token cache');
-    _cachedTokens = null;
-    _lastFetchTime = null;
   }
 } 
