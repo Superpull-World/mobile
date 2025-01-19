@@ -207,12 +207,20 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
     
     // Helper function to calculate probability score
     double _getProbabilityScore(Auction auction) {
-      if (auction.saleEndDate.isBefore(now)) return -1; // Ended auctions get lowest priority
-      if (auction.currentSupply >= auction.maxSupply) return -1; // Max supply reached gets lowest priority
-      if (auction.isGraduated) return 0; // Graduated auctions get second lowest priority
+      final isEnded = auction.saleEndDate.isBefore(now);
+      
+      // Special cases for ended auctions
+      if (isEnded) {
+        if (auction.hasReachedMaxSupply) return -3; // Max supply at the end
+        if (auction.isGraduated) return -1; // Graduated and ended comes first
+        return -2; // Cancelled comes after graduated
+      }
+      
+      if (auction.hasReachedMaxSupply) return -3; // Max supply at the end
+      if (auction.isGraduated) return 0; // Active graduated auctions get next priority
       
       final hoursRemaining = auction.saleEndDate.difference(now).inHours;
-      if (hoursRemaining <= 0) return -1;
+      if (hoursRemaining <= 0) return -2; // Treat as cancelled
       
       final progressRate = _getProgressRate(auction);
       if (progressRate <= 0) return 0.1; // Give some small chance for new auctions
@@ -245,12 +253,7 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
       final scoreB = _getProbabilityScore(b);
       
       // Sort by score in descending order
-      if (scoreA != scoreB) {
-        return scoreB.compareTo(scoreA);
-      }
-      
-      // If scores are equal, sort by deadline
-      return a.saleEndDate.compareTo(b.saleEndDate);
+      return scoreB.compareTo(scoreA);
     });
   }
 

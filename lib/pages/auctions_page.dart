@@ -265,20 +265,66 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
                     left: 0,
                     right: 0,
                     bottom: 16,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(
-                        auctions.length,
-                        (index) => Container(
-                          width: 8,
-                          height: 8,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: index == _currentPage
-                              ? const Color(0xFFEEFC42)
-                              : Colors.white24,
-                          ),
+                    child: Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            const dotWidth = 10.0;
+                            const selectedDotWidth = 14.0;
+                            const dotMargin = 8.0; // 4.0 on each side
+                            final availableWidth = constraints.maxWidth;
+                            final maxDots = ((availableWidth + dotMargin) / (selectedDotWidth + dotMargin)).floor();
+                            final totalDots = auctions.length;
+                            final visibleDots = min(maxDots, totalDots);
+                            
+                            int startIndex;
+                            if (visibleDots >= totalDots) {
+                              startIndex = 0;
+                            } else {
+                              final halfVisible = visibleDots ~/ 2;
+                              startIndex = max(0, min(_currentPage - halfVisible, totalDots - visibleDots));
+                            }
+                            final endIndex = min(startIndex + visibleDots, totalDots);
+                            
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                for (int i = startIndex; i < endIndex; i++)
+                                  Container(
+                                    width: i == _currentPage ? selectedDotWidth : dotWidth,
+                                    height: i == _currentPage ? selectedDotWidth : dotWidth,
+                                    margin: const EdgeInsets.symmetric(horizontal: dotMargin / 2),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: (!auctions[i].hasReachedMaxSupply && auctions[i].isGraduated) 
+                                        ? LinearGradient(
+                                            colors: [
+                                              auctions[i].isEnded
+                                                ? Colors.red.withOpacity(i == _currentPage ? 1.0 : 0.5)
+                                                : const Color(0xFFEEFC42).withOpacity(i == _currentPage ? 1.0 : 0.5),
+                                              Colors.green.withOpacity(i == _currentPage ? 1.0 : 0.5),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          )
+                                        : null,
+                                      color: auctions[i].hasReachedMaxSupply 
+                                        ? Colors.black.withOpacity(i == _currentPage ? 1.0 : 0.5)
+                                        : (!auctions[i].hasReachedMaxSupply && !auctions[i].isGraduated)
+                                          ? _getDotColor(auctions[i]).withOpacity(i == _currentPage ? 1.0 : 0.5)
+                                          : null,
+                                    ),
+                                  ),
+                              ],
+                            );
+                          }
                         ),
                       ),
                     ),
@@ -388,6 +434,23 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
         ),
       ),
     );
+  }
+
+  Color _getDotColor(Auction auction) {
+    if (auction.hasReachedMaxSupply) {
+      return Colors.black;
+    }
+    if (auction.isGraduated) {
+      return Colors.green; // This won't be used directly, gradient is used instead
+    }
+    switch (auction.status) {
+      case 'Active':
+        return const Color(0xFFEEFC42); // Yellow
+      case 'Cancelled':
+        return Colors.red;
+      default:
+        return Colors.white24;
+    }
   }
 
   @override
