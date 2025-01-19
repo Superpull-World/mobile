@@ -63,9 +63,8 @@ class AuctionService with RefreshManager<AuctionListData> {
         final status = workflowResult['queries']?['status'] as String?;
         
         if (status == 'completed') {
-          final auctionsData = workflowResult['queries']?['auctionsResult'] as Map<String, dynamic>;
-          final List<dynamic> auctionsList = auctionsData['auctions'] as List<dynamic>;
-          final int total = auctionsData['total'] as int;
+          final auctionsList = workflowResult['queries']?['auctionsResult'] as List<dynamic>;
+          final int total = auctionsList.length; // Since we don't have a separate total, use the list length
 
           final auctions = await Future.wait(
             auctionsList.map((auction) async {
@@ -94,6 +93,98 @@ class AuctionService with RefreshManager<AuctionListData> {
     } catch (e) {
       print('❌ Error fetching auctions: $e');
       throw Exception('Failed to fetch auctions: $e');
+    }
+  }
+
+  Future<void> createAuction({
+    required String name,
+    required String description,
+    required String imageUrl,
+    required double price,
+    required String ownerAddress,
+    required int maxSupply,
+    required int minimumItems,
+    required DateTime deadline,
+    required String jwt,
+    required String tokenMint,
+    required Function(String) onStatusUpdate,
+  }) async {
+    try {
+      final unixTimestamp = deadline.millisecondsSinceEpoch ~/ 1000;
+      
+      final result = await _workflowService.executeWorkflow(
+        'createAuction',
+        {
+          'name': name,
+          'description': description,
+          'imageUrl': imageUrl,
+          'price': price,
+          'ownerAddress': ownerAddress,
+          'maxSupply': maxSupply,
+          'minimumItems': minimumItems,
+          'deadline': unixTimestamp,
+          'jwt': jwt,
+          'tokenMint': tokenMint,
+        },
+      );
+
+      final workflowId = result['id'] as String;
+      bool isComplete = false;
+      String finalStatus = '';
+
+      while (!isComplete) {
+        try {
+          final statusResult = await _workflowService.queryWorkflow(
+            workflowId,
+            'status',
+          );
+          final status = statusResult['queries']?['status'] as String? ?? 'unknown';
+          finalStatus = status;
+
+          // Map status to user-friendly message
+          String displayStatus = switch (status.toLowerCase()) {
+            'running' => 'Creating auction...',
+            'verifying-jwt' => 'Verifying credentials...',
+            'uploading-metadata' => 'Uploading metadata...',
+            'creating-merkle-tree' => 'Creating Merkle tree...',
+            'initializing-auction' => 'Initializing auction...',
+            'creating-collection-nft' => 'Creating collection NFT...',
+            'verifying-collection' => 'Verifying collection...',
+            'updating-collection-authority' => 'Updating collection authority...',
+            'completed' => 'Completed',
+            'failed' => 'Failed',
+            String s when s.endsWith('-failed') => 'Failed: ${s.split('-').first}',
+            _ => 'Processing...',
+          };
+
+          onStatusUpdate(displayStatus);
+
+          if (status.toLowerCase() == 'completed') {
+            isComplete = true;
+            result['status'] = 'success';
+            break;
+          } else if (status.toLowerCase() == 'failed' || 
+                    status.toLowerCase().endsWith('-failed')) {
+            isComplete = true;
+            result['status'] = 'failed';
+            break;
+          }
+
+          await Future.delayed(const Duration(seconds: 2));
+        } catch (e) {
+          print('❌ Error checking workflow status: $e');
+          onStatusUpdate('Failed: $e');
+          isComplete = true;
+          throw e;
+        }
+      }
+
+      if (result['status'] != 'success') {
+        throw Exception(finalStatus);
+      }
+    } catch (e) {
+      print('❌ Error creating auction: $e');
+      throw Exception('Failed to create auction: $e');
     }
   }
 } 

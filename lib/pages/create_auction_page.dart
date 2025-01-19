@@ -162,8 +162,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         _submissionStatus = 'Creating auction...';
       });
 
-      bool hasCompleted = false;
-      await _workflowService.startCreateAuctionWorkflow(
+      await ref.read(auctionServiceProvider).createAuction(
         name: _nameController.text,
         description: _descriptionController.text,
         imageUrl: imageUrl,
@@ -176,43 +175,30 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         tokenMint: _selectedTokenMint!,
         onStatusUpdate: (status) {
           if (!mounted) return;
-          
           setState(() {
             _submissionStatus = status;
-            if (status == 'Completed') {
-              hasCompleted = true;
-              _isLoading = false;
-              
-              // Refresh auctions list
-              ref.read(auctionsOperationsProvider).refresh();
-              
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Auction created successfully!'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              Navigator.of(context).pop();
-            } else if (status == 'Failed' || status.startsWith('Failed:')) {
-              _isLoading = false;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Failed to create auction: $status'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
           });
         },
       );
 
-      // If we somehow exit the workflow without completing or failing
-      if (!hasCompleted && mounted) {
-        setState(() {
-          _isLoading = false;
-          _submissionStatus = '';
-        });
-      }
+      if (!mounted) return;
+
+      // Success case
+      setState(() {
+        _isLoading = false;
+        _submissionStatus = '';
+      });
+
+      // Refresh auctions list
+      ref.read(auctionsOperationsProvider).refresh();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Auction created successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
