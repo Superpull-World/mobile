@@ -6,6 +6,7 @@ import '../services/workflow_service.dart';
 import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../providers/token_provider.dart';
+import '../providers/auctions_provider.dart';
 import '../models/token_metadata.dart';
 
 class CreateAuctionPage extends ConsumerStatefulWidget {
@@ -29,7 +30,9 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   XFile? _imageFile;
   bool _isLoading = false;
   String _submissionStatus = '';
-  TokenMetadata? _selectedToken;
+  String? _selectedTokenMint;
+  int? _tokenDecimals;
+  String _priceFieldLabel = 'Price';
 
   @override
   void initState() {
@@ -112,7 +115,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
       );
       return;
     }
-    if (_selectedToken == null) {
+    if (_selectedTokenMint == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select a token'),
@@ -170,7 +173,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         minimumItems: int.parse(_minItemsController.text),
         deadline: _saleEndDate!,
         jwt: jwt,
-        tokenMint: _selectedToken!.mint,
+        tokenMint: _selectedTokenMint!,
         onStatusUpdate: (status) {
           if (!mounted) return;
           
@@ -179,6 +182,10 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
             if (status == 'Completed') {
               hasCompleted = true;
               _isLoading = false;
+              
+              // Refresh auctions list
+              ref.read(auctionsOperationsProvider).refresh();
+              
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text('Auction created successfully!'),
@@ -224,8 +231,6 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
 
   @override
   Widget build(BuildContext context) {
-    final tokensState = ref.watch(acceptedTokensProvider);
-    
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -364,7 +369,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
                     style: const TextStyle(color: Colors.white),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
-                      labelText: 'Price (${_selectedToken?.symbol ?? ''})',
+                      labelText: _priceFieldLabel,
                       labelStyle: const TextStyle(color: Colors.white70),
                       enabledBorder: const OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.white24),
@@ -496,51 +501,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  DropdownButtonFormField<TokenMetadata>(
-                    value: _selectedToken,
-                    style: const TextStyle(color: Colors.white),
-                    dropdownColor: const Color(0xFF1A1A1A),
-                    decoration: const InputDecoration(
-                      labelText: 'Token',
-                      labelStyle: TextStyle(color: Colors.white70),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white24),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Color(0xFFEEFC42)),
-                      ),
-                      errorBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.red),
-                      ),
-                      focusedErrorBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.red),
-                      ),
-                    ),
-                    items: tokensState.when(
-                      data: (tokens) => tokens.map((token) {
-                        return DropdownMenuItem<TokenMetadata>(
-                          value: token,
-                          child: Text(
-                            '${token.name} (${token.symbol})',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        );
-                      }).toList(),
-                      loading: () => [],
-                      error: (_, __) => [],
-                    ),
-                    onChanged: (TokenMetadata? token) {
-                      setState(() {
-                        _selectedToken = token;
-                      });
-                    },
-                    validator: (value) {
-                      if (value == null) {
-                        return 'Please select a token';
-                      }
-                      return null;
-                    },
-                  ),
+                  _buildTokenSelector(),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _submitForm,
@@ -564,6 +525,89 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
               ),
             ),
           ),
+    );
+  }
+
+  Widget _buildTokenSelector() {
+    final tokenState = ref.watch(tokenStateProvider);
+    
+    if (tokenState.isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+        ),
+      );
+    }
+    
+    if (tokenState.error != null) {
+      return Center(
+        child: Text(
+          'Failed to load tokens: ${tokenState.error}',
+          style: const TextStyle(color: Colors.red),
+        ),
+      );
+    }
+    
+    final tokens = tokenState.tokens;
+    if (tokens == null) {
+      return const Center(
+        child: Text(
+          'No tokens available',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: _selectedTokenMint,
+      decoration: const InputDecoration(
+        labelText: 'Token',
+        labelStyle: TextStyle(color: Colors.white),
+        border: OutlineInputBorder(),
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.white24),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Color(0xFFEEFC42)),
+        ),
+      ),
+      dropdownColor: Colors.black,
+      style: const TextStyle(color: Colors.white),
+      items: tokens.map((token) {
+        return DropdownMenuItem<String>(
+          value: token.mint,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 200),
+            child: Text(
+              '${token.symbol} (${token.mint})',
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        );
+      }).toList(),
+      onChanged: (String? newValue) {
+        if (newValue != null) {
+          setState(() {
+            _selectedTokenMint = newValue;
+            _tokenDecimals = tokens
+                .firstWhere((token) => token.mint == newValue)
+                .decimals;
+            
+            // Update price field label with token symbol
+            final symbol = tokens
+                .firstWhere((token) => token.mint == newValue)
+                .symbol;
+            _priceFieldLabel = 'Price ($symbol)';
+          });
+        }
+      },
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select a token';
+        }
+        return null;
+      },
     );
   }
 } 

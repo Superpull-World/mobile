@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auctions_provider.dart';
-import '../providers/token_provider.dart';
-import '../providers/balance_provider.dart';
+import '../providers/token_provider.dart' as token_provider;
 import '../providers/wallet_provider.dart';
+import '../providers/service_providers.dart';
 import '../widgets/auction_card.dart';
 import '../models/auction.dart';
 import '../models/token_metadata.dart';
@@ -12,7 +12,10 @@ import 'create_auction_page.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
-import 'dart:math' show pi;
+import 'dart:math';
+import '../providers/creator_provider.dart';
+import '../providers/token_tracking_provider.dart';
+import '../providers/current_auction_token_provider.dart';
 
 class AuctionsPage extends ConsumerStatefulWidget {
   const AuctionsPage({super.key});
@@ -27,128 +30,424 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
   int _currentPage = 0;
   String? _currentAuctionId;
   String? _currentTokenMint;
-  TokenMetadata? _currentTokenMetadata;
   String? _walletAddress;
   StreamSubscription? _auctionSubscription;
+  String? _selectedTokenMint;
+  int? _tokenDecimals;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(viewportFraction: 0.95);
-    _pageController.addListener(_onPageChanged);
     _loadWalletAddress();
     
     // Initialize metadata for first auction
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auctionsState = ref.read(auctionsProvider);
       auctionsState.whenOrNull(
-        data: (auctions) async {
+        data: (auctions) {
           if (auctions.isNotEmpty) {
-            final auction = auctions[0];
-            _currentAuctionId = auction.id;
-            _currentTokenMint = auction.tokenMint;
-            _updateTokenMetadata(auction.tokenMint);
+            _currentAuctionId = auctions[0].id;
+            _currentTokenMint = auctions[0].tokenMint;
+            ref.read(token_provider.tokenStateProvider.notifier).updateCurrentAuctionToken(_currentTokenMint!);
           }
         },
       );
     });
     
     _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
       vsync: this,
+      duration: const Duration(milliseconds: 2000),
     )..repeat();
   }
 
-  Future<void> _updateTokenMetadata(String tokenMint) async {
+  void _updateForAuction(Auction auction) {
     if (!mounted) return;
     
-    // Get token metadata from cached state
-    final tokensState = ref.read(acceptedTokensProvider);
-    tokensState.whenOrNull(
-      data: (tokens) {
-        final metadata = tokens.firstWhere(
-          (token) => token.mint == tokenMint,
-          orElse: () => TokenMetadata(
-            mint: tokenMint,
-            name: 'Unknown Token',
-            symbol: '',
-            uri: '',
-            decimals: 9,
-            supply: '0',
+    setState(() {
+      _currentAuctionId = auction.id;
+      _currentTokenMint = auction.tokenMint;
+    });
+    
+    ref.read(token_provider.tokenStateProvider.notifier).updateCurrentAuctionToken(_currentTokenMint!);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auctionsState = ref.watch(auctionsProvider);
+    final tokenState = ref.watch(token_provider.tokenStateProvider);
+    
+    return auctionsState.when(
+      data: (auctions) {
+        // Find index of current auction after refresh
+        if (_currentAuctionId != null) {
+          final currentIndex = auctions.indexWhere((a) => a.id == _currentAuctionId);
+          if (currentIndex != -1 && currentIndex != _currentPage) {
+            print('📱 Restoring auction position:');
+            print('  - Current Auction ID: $_currentAuctionId');
+            print('  - Found at index: $currentIndex');
+            
+            // Use post frame callback to avoid build phase animation
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _pageController.animateToPage(
+                currentIndex,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            });
+          }
+        }
+
+        // Get current auction and its token
+        final currentAuction = auctions.isNotEmpty && _currentPage < auctions.length 
+          ? auctions[_currentPage] 
+          : null;
+        
+        if (currentAuction != null) {
+          print('📱 Current auction in build:');
+          print('  - Auction ID: ${currentAuction.id}');
+          print('  - Token Mint: ${currentAuction.tokenMint}');
+          print('  - Current Page: $_currentPage');
+          print('  - Current Token Mint: $_currentTokenMint');
+          
+          // Track token
+          ref.read(tokenTrackingProvider(currentAuction));
+        }
+        
+        // Get current token balance
+        double? currentTokenBalance;
+        String? formattedBalance;
+        
+        // Only show balance when we have token state and current auction
+        if (currentAuction != null && tokenState.tokens != null) {
+          print('💰 Getting balance for token:');
+          print('  - Token Mint: ${currentAuction.tokenMint}');
+          print('  - Available Tokens: ${tokenState.tokens!.map((t) => t.mint).join(', ')}');
+          print('  - Available Balances: ${tokenState.balances}');
+          
+          final token = tokenState.tokens!.firstWhere(
+            (t) => t.mint == currentAuction.tokenMint,
+            orElse: () {
+              print('⚠️ Token not found in token state: ${currentAuction.tokenMint}');
+              return TokenMetadata(
+                mint: currentAuction.tokenMint,
+                name: 'Unknown Token',
+                symbol: '',
+                uri: '',
+                decimals: 0,
+                supply: '0',
+                balance: '0',
+              );
+            },
+          );
+          
+          final balanceStr = tokenState.balances[currentAuction.tokenMint];
+          print('  - Found Token: ${token.mint} (${token.symbol})');
+          print('  - Balance String: $balanceStr');
+          
+          if (balanceStr != null) {
+            final rawBalance = BigInt.tryParse(balanceStr) ?? BigInt.zero;
+            final decimals = token.decimals;
+            currentTokenBalance = rawBalance.toDouble() / pow(10, decimals);
+            // Round to exact decimal places to avoid floating point errors
+            final roundedBalance = (currentTokenBalance * pow(10, decimals)).round() / pow(10, decimals);
+            formattedBalance = '${roundedBalance.toString().replaceAll(RegExp(r'\.?0*$'), '')} ${token.symbol}';
+            print('  - Formatted Balance: $formattedBalance');
+          }
+        }
+
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            title: Image.asset(
+              'assets/icons/logo.png',
+              height: 32,
+            ),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEFC42).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: tokenState.error != null
+                      ? const Text(
+                          'Error',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        )
+                      : Text(
+                          formattedBalance ?? '...',
+                          style: const TextStyle(
+                            color: Color(0xFFEEFC42),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.qr_code),
+                color: Color(0xFFEEFC42),
+                onPressed: _showQrCode,
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings, color: Color(0xFFEEFC42)),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SettingsPage()),
+                  );
+                },
+              ),
+            ],
+          ),
+          body: auctions.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.local_mall_outlined,
+                      size: 64,
+                      color: Color(0xFFEEFC42),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No auctions yet',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Check back later for new items',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : Stack(
+                children: [
+                  PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (page) {
+                      print('📱 Page Changed:');
+                      print('  - New Page: $page');
+                      print('  - Old Page: $_currentPage');
+                      
+                      setState(() => _currentPage = page);
+                      final auction = auctions[page];
+                      print('  - New Auction ID: ${auction.id}');
+                      print('  - New Token Mint: ${auction.tokenMint}');
+                      _updateForAuction(auction);
+                    },
+                    itemCount: auctions.length,
+                    itemBuilder: (context, index) {
+                      final auction = auctions[index];
+                      return AuctionCard(auction: auction);
+                    },
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 16,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        auctions.length,
+                        (index) => Container(
+                          width: 8,
+                          height: 8,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: index == _currentPage
+                              ? const Color(0xFFEEFC42)
+                              : Colors.white24,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          floatingActionButton: ref.watch(isAllowedCreatorProvider).when(
+            data: (isCreator) => isCreator ? AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) => FloatingActionButton.extended(
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CreateAuctionPage()),
+                  );
+                },
+                backgroundColor: const Color(0xFFEEFC42),
+                foregroundColor: Colors.black,
+                elevation: 4 + (_animationController.value * 4), // Animated elevation
+                extendedPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(32),
+                  side: BorderSide(
+                    color: Colors.white.withOpacity(0.5 + _animationController.value * 0.5),
+                    width: 2,
+                  ),
+                ),
+                icon: Transform.rotate(
+                  angle: _animationController.value * 2 * pi,
+                  child: const Icon(Icons.add),
+                ),
+                label: const Text(
+                  'Dream',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ) : null,
+            loading: () => null,
+            error: (_, __) => null,
           ),
         );
-        if (mounted) {
+      },
+      loading: () => const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+          ),
+        ),
+      ),
+      error: (error, _) => Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Color(0xFFEEFC42),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Failed to load auctions',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error.toString(),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  ref.read(auctionsOperationsProvider).refresh();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEEFC42),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Try Again',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _animationController.dispose();
+    _auctionSubscription?.cancel();
+    super.dispose();
+  }
+
+  Widget _buildTokenSelector() {
+    final tokenService = ref.watch(tokenServiceProvider);
+    final tokens = tokenService.cachedTokens;
+    
+    if (tokens == null) {
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+        ),
+      );
+    }
+
+    return DropdownButtonFormField<String>(
+      value: _selectedTokenMint,
+      decoration: const InputDecoration(
+        labelText: 'Token',
+        labelStyle: TextStyle(color: Colors.white),
+        border: OutlineInputBorder(),
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Colors.white24),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: Color(0xFFEEFC42)),
+        ),
+      ),
+      dropdownColor: Colors.black,
+      style: const TextStyle(color: Colors.white),
+      items: tokens.map((token) {
+        return DropdownMenuItem<String>(
+          value: token.mint,
+          child: Text(token.mint),
+        );
+      }).toList(),
+      onChanged: (String? newValue) {
+        if (newValue != null) {
           setState(() {
-            _currentTokenMetadata = metadata;
+            _selectedTokenMint = newValue;
+            _tokenDecimals = tokens
+                .firstWhere((token) => token.mint == newValue)
+                .decimals;
           });
         }
       },
-    );
-  }
-
-  void _onPageChanged() {
-    if (!mounted) return;
-    
-    final page = _pageController.page?.round() ?? 0;
-    if (_currentPage != page) {
-      setState(() => _currentPage = page);
-      
-      final auctionsState = ref.read(auctionsProvider);
-      auctionsState.whenOrNull(
-        data: (auctions) async {
-          if (auctions.isNotEmpty && page < auctions.length) {
-            final auction = auctions[page];
-            _currentAuctionId = auction.id;
-            
-            // Update token metadata if needed
-            if (_currentTokenMint != auction.tokenMint) {
-              _currentTokenMint = auction.tokenMint;
-              _updateTokenMetadata(auction.tokenMint);
-            }
-          }
-        },
-      );
-    }
-  }
-
-  Future<void> refreshBalancesForBid() async {
-    if (!mounted) return;
-    
-    final auctionsState = ref.read(auctionsProvider);
-    await auctionsState.whenOrNull(
-      data: (auctions) async {
-        if (auctions.isEmpty || _currentPage >= auctions.length) return;
-        
-        final auction = auctions[_currentPage];
-        if (_currentTokenMint != auction.tokenMint) {
-          _currentTokenMint = auction.tokenMint;
-          _updateTokenMetadata(auction.tokenMint);
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please select a token';
         }
+        return null;
       },
     );
-  }
-
-  void _updateCurrentAuctionId() {
-    final auctionsState = ref.read(auctionsProvider);
-    auctionsState.whenOrNull(
-      data: (auctions) {
-        if (auctions.isNotEmpty && _currentPage < auctions.length) {
-          _currentAuctionId = auctions[_currentPage].id;
-        }
-      },
-    );
-  }
-
-  Future<void> _loadWalletAddress() async {
-    try {
-      final walletService = ref.read(walletServiceProvider);
-      final address = await walletService.getWalletAddress();
-      setState(() {
-        _walletAddress = address;
-      });
-    } catch (e) {
-      print('Error loading wallet address: $e');
-    }
   }
 
   void _showQrCode() {
@@ -241,308 +540,16 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
     );
   }
 
-  void _updateAuctionPosition() {
-    if (!mounted || _currentAuctionId == null) return;
-    
-    final auctionsState = ref.read(auctionsProvider);
-    auctionsState.whenOrNull(
-      data: (auctions) {
-        if (auctions.isEmpty) return;
-        
-        final newIndex = auctions.indexWhere((a) => a.id == _currentAuctionId);
-        if (newIndex != -1 && newIndex != _currentPage) {
-          _pageController.animateToPage(
-            newIndex,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-          );
-          setState(() => _currentPage = newIndex);
-        }
-      },
-    );
-  }
-
-  void _onBidPlaced() async {
-    await refreshBalancesForBid();
-    await ref.read(auctionsProvider.notifier).refreshAfterBid();
-    _updateAuctionPosition();
-  }
-
-  void _onNewAuctionCreated() async {
-    await ref.read(auctionsProvider.notifier).refreshAfterNewAuction();
-  }
-
-  void _onBidButtonPressed() async {
-    await refreshBalancesForBid();
-  }
-
-  void _onAuctionSelected() {
-    _updateCurrentAuctionId();
-    refreshBalancesForBid();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final auctionsState = ref.watch(auctionsProvider);
-    final balanceState = ref.watch(balanceProvider);
-    final currentTokenBalance = balanceState.whenOrNull(
-      data: (balanceData) => _currentTokenMint != null 
-        ? balanceData.tokenBalances[_currentTokenMint] ?? 0.0
-        : null,
-    );
-
-    // Listen to auction changes and update position
-    ref.listen(auctionsProvider, (previous, next) {
-      if (previous != next) {
-        _updateAuctionPosition();
-      }
-    });
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Image.asset(
-          'assets/icons/logo.png',
-          height: 32,
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEFC42).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: currentTokenBalance != null && _currentTokenMetadata != null
-                  ? Text(
-                      '${currentTokenBalance.toStringAsFixed(2)} ${_currentTokenMetadata!.symbol}',
-                      style: const TextStyle(
-                        color: Color(0xFFEEFC42),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    )
-                  : const Text(
-                      '...',
-                      style: TextStyle(
-                        color: Color(0xFFEEFC42),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.qr_code),
-            color: Color(0xFFEEFC42),
-            onPressed: _showQrCode,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings, color: Color(0xFFEEFC42)),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
-              );
-            },
-          ),
-        ],
-      ),
-      body: auctionsState.when(
-        data: (auctions) {
-          if (auctions.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.local_mall_outlined,
-                    size: 64,
-                    color: Color(0xFFEEFC42),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No auctions yet',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Check back later for new items',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white70,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          // Find index of current auction after refresh
-          if (_currentAuctionId != null) {
-            final currentIndex = auctions.indexWhere((a) => a.id == _currentAuctionId);
-            if (currentIndex == -1) {
-              // If auction is no longer in the list, reset to current page
-              _currentAuctionId = auctions[_currentPage].id;
-              _currentTokenMint = auctions[_currentPage].tokenMint;
-              _updateTokenMetadata(auctions[_currentPage].tokenMint);
-            }
-          } else if (_currentTokenMint == null) {
-            refreshBalancesForBid();
-            _updateCurrentAuctionId();
-          }
-
-          return Stack(
-            children: [
-              PageView.builder(
-                controller: _pageController,
-                itemCount: auctions.length,
-                itemBuilder: (context, index) {
-                  final auction = auctions[index];
-                  return AuctionCard(auction: auction);
-                },
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 16,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(
-                    auctions.length,
-                    (index) => Container(
-                      width: 8,
-                      height: 8,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: index == _currentPage
-                          ? const Color(0xFFEEFC42)
-                          : Colors.white24,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-        loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-          ),
-        ),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Color(0xFFEEFC42),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Failed to load auctions',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                error.toString(),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () {
-                  ref.read(auctionsProvider.notifier).refresh();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEEFC42),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Try Again',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      floatingActionButton: AnimatedBuilder(
-        animation: _animationController,
-        builder: (context, child) => FloatingActionButton.extended(
-          onPressed: () {
-            HapticFeedback.mediumImpact();
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const CreateAuctionPage()),
-            );
-          },
-          backgroundColor: const Color(0xFFEEFC42),
-          foregroundColor: Colors.black,
-          elevation: 4 + (_animationController.value * 4), // Animated elevation
-          extendedPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(32),
-            side: BorderSide(
-              color: Colors.white.withOpacity(0.5 + _animationController.value * 0.5),
-              width: 2,
-            ),
-          ),
-          icon: Transform.rotate(
-            angle: _animationController.value * 2 * pi,
-            child: const Icon(
-              Icons.auto_awesome,
-              size: 24,
-            ),
-          ),
-          label: Row(
-            children: [
-              const Text(
-                'Dream',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Transform.rotate(
-                angle: -_animationController.value * 2 * pi,
-                child: const Icon(
-                  Icons.star,
-                  size: 20,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _loadWalletAddress() async {
+    try {
+      final walletService = ref.read(walletServiceProvider);
+      final address = await walletService.getWalletAddress();
+      setState(() {
+        _walletAddress = address;
+      });
+    } catch (e) {
+      print('Error loading wallet address: $e');
+    }
   }
 }
 

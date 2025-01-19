@@ -1,13 +1,26 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/token_service.dart';
-import '../services/balance_service.dart';
 import '../services/workflow_service.dart';
+import '../services/creator_service.dart';
+import '../services/auth_service.dart';
+import '../services/wallet_service.dart';
+
+final walletServiceProvider = Provider((ref) => WalletService());
 
 final workflowServiceProvider = Provider<WorkflowService>((ref) => WorkflowService());
 
-final tokenServiceProvider = Provider<TokenService>((ref) {
+final authServiceProvider = Provider((ref) => AuthService());
+
+final tokenServiceProvider = Provider((ref) {
   final workflowService = ref.watch(workflowServiceProvider);
-  return TokenService(workflowService: workflowService);
+  final authService = ref.watch(authServiceProvider);
+  return TokenService(
+    workflowService: workflowService,
+    authService: authService,
+  );
 });
 
-final balanceServiceProvider = Provider<BalanceService>((ref) => BalanceService()); 
+final creatorServiceProvider = Provider<CreatorService>((ref) {
+  final workflowService = ref.watch(workflowServiceProvider);
+  return CreatorService(workflowService: workflowService);
+}); 

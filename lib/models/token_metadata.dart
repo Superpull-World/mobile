@@ -8,10 +8,11 @@ class TokenMetadata with _$TokenMetadata {
   const factory TokenMetadata({
     required String mint,
     @Default('Unknown Token') String name,
-    @Default('UNKNOWN') String symbol,
+    @Default('') String symbol,
     @Default('') String uri,
     required int decimals,
     @Default('0') String supply,
+    @Default('0') String balance,
   }) = _TokenMetadata;
 
   factory TokenMetadata.fromJson(Map<String, dynamic> json) =>

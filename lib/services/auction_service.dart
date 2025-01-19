@@ -21,6 +21,7 @@ class AuctionService with RefreshManager<AuctionListData> {
   final WorkflowService _workflowService;
   final TokenService _tokenService;
   final Ref _ref;
+  AuctionListData? _cachedData;
 
   AuctionService({
     required WorkflowService workflowService,
@@ -29,12 +30,14 @@ class AuctionService with RefreshManager<AuctionListData> {
   }) : _workflowService = workflowService,
        _tokenService = tokenService,
        _ref = ref {
-    // Start periodic refresh every 30 seconds
+    // Start periodic refresh every 10 minutes
     startPeriodicRefresh(
       () => getAuctions(page: 1, limit: 10),
-      interval: const Duration(seconds: 30),
+      interval: const Duration(minutes: 10),
     );
   }
+
+  AuctionListData? get cachedData => _cachedData;
 
   Future<AuctionListData> getAuctions({
     int page = 1,
@@ -79,7 +82,9 @@ class AuctionService with RefreshManager<AuctionListData> {
             }),
           );
 
-          return AuctionListData(auctions: auctions, total: total);
+          final listData = AuctionListData(auctions: auctions, total: total);
+          _cachedData = listData;
+          return listData;
         } else if (status == 'failed') {
           throw Exception('Workflow failed: ${workflowResult['queries']?['error']}');
         }

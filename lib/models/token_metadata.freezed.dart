@@ -26,6 +26,7 @@ mixin _$TokenMetadata {
   String get uri => throw _privateConstructorUsedError;
   int get decimals => throw _privateConstructorUsedError;
   String get supply => throw _privateConstructorUsedError;
+  String get balance => throw _privateConstructorUsedError;
 
   /// Serializes this TokenMetadata to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -49,7 +50,8 @@ abstract class $TokenMetadataCopyWith<$Res> {
       String symbol,
       String uri,
       int decimals,
-      String supply});
+      String supply,
+      String balance});
 }
 
 /// @nodoc
@@ -73,6 +75,7 @@ class _$TokenMetadataCopyWithImpl<$Res, $Val extends TokenMetadata>
     Object? uri = null,
     Object? decimals = null,
     Object? supply = null,
+    Object? balance = null,
   }) {
     return _then(_value.copyWith(
       mint: null == mint
@@ -99,6 +102,10 @@ class _$TokenMetadataCopyWithImpl<$Res, $Val extends TokenMetadata>
           ? _value.supply
           : supply // ignore: cast_nullable_to_non_nullable
               as String,
+      balance: null == balance
+          ? _value.balance
+          : balance // ignore: cast_nullable_to_non_nullable
+              as String,
     ) as $Val);
   }
 }
@@ -117,7 +124,8 @@ abstract class _$$TokenMetadataImplCopyWith<$Res>
       String symbol,
       String uri,
       int decimals,
-      String supply});
+      String supply,
+      String balance});
 }
 
 /// @nodoc
@@ -139,6 +147,7 @@ class __$$TokenMetadataImplCopyWithImpl<$Res>
     Object? uri = null,
     Object? decimals = null,
     Object? supply = null,
+    Object? balance = null,
   }) {
     return _then(_$TokenMetadataImpl(
       mint: null == mint
@@ -165,6 +174,10 @@ class __$$TokenMetadataImplCopyWithImpl<$Res>
           ? _value.supply
           : supply // ignore: cast_nullable_to_non_nullable
               as String,
+      balance: null == balance
+          ? _value.balance
+          : balance // ignore: cast_nullable_to_non_nullable
+              as String,
     ));
   }
 }
@@ -178,7 +191,8 @@ class _$TokenMetadataImpl implements _TokenMetadata {
       this.symbol = 'UNKNOWN',
       this.uri = '',
       required this.decimals,
-      this.supply = '0'});
+      this.supply = '0',
+      this.balance = '0'});
 
   factory _$TokenMetadataImpl.fromJson(Map<String, dynamic> json) =>
       _$$TokenMetadataImplFromJson(json);
@@ -199,10 +213,13 @@ class _$TokenMetadataImpl implements _TokenMetadata {
   @override
   @JsonKey()
   final String supply;
+  @override
+  @JsonKey()
+  final String balance;
 
   @override
   String toString() {
-    return 'TokenMetadata(mint: $mint, name: $name, symbol: $symbol, uri: $uri, decimals: $decimals, supply: $supply)';
+    return 'TokenMetadata(mint: $mint, name: $name, symbol: $symbol, uri: $uri, decimals: $decimals, supply: $supply, balance: $balance)';
   }
 
   @override
@@ -216,13 +233,14 @@ class _$TokenMetadataImpl implements _TokenMetadata {
             (identical(other.uri, uri) || other.uri == uri) &&
             (identical(other.decimals, decimals) ||
                 other.decimals == decimals) &&
-            (identical(other.supply, supply) || other.supply == supply));
+            (identical(other.supply, supply) || other.supply == supply) &&
+            (identical(other.balance, balance) || other.balance == balance));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
-  int get hashCode =>
-      Object.hash(runtimeType, mint, name, symbol, uri, decimals, supply);
+  int get hashCode => Object.hash(
+      runtimeType, mint, name, symbol, uri, decimals, supply, balance);
 
   /// Create a copy of TokenMetadata
   /// with the given fields replaced by the non-null parameter values.
@@ -247,7 +265,8 @@ abstract class _TokenMetadata implements TokenMetadata {
       final String symbol,
       final String uri,
       required final int decimals,
-      final String supply}) = _$TokenMetadataImpl;
+      final String supply,
+      final String balance}) = _$TokenMetadataImpl;
 
   factory _TokenMetadata.fromJson(Map<String, dynamic> json) =
       _$TokenMetadataImpl.fromJson;
@@ -264,6 +283,8 @@ abstract class _TokenMetadata implements TokenMetadata {
   int get decimals;
   @override
   String get supply;
+  @override
+  String get balance;
 
   /// Create a copy of TokenMetadata
   /// with the given fields replaced by the non-null parameter values.

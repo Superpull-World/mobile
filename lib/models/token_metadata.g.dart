@@ -14,6 +14,7 @@ _$TokenMetadataImpl _$$TokenMetadataImplFromJson(Map<String, dynamic> json) =>
       uri: json['uri'] as String? ?? '',
       decimals: (json['decimals'] as num).toInt(),
       supply: json['supply'] as String? ?? '0',
+      balance: json['balance'] as String? ?? '0',
     );
 
 Map<String, dynamic> _$$TokenMetadataImplToJson(_$TokenMetadataImpl instance) =>
@@ -24,4 +25,5 @@ Map<String, dynamic> _$$TokenMetadataImplToJson(_$TokenMetadataImpl instance) =>
       'uri': instance.uri,
       'decimals': instance.decimals,
       'supply': instance.supply,
+      'balance': instance.balance,
     };

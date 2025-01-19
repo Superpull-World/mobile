@@ -5,60 +5,189 @@ import 'package:superpull_mobile/services/auction_service.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/token_service.dart';
 import 'package:superpull_mobile/providers/token_provider.dart';
-import 'package:superpull_mobile/providers/balance_provider.dart';
 
-// Service provider
-final auctionServiceProvider = Provider((ref) => AuctionService(
-  workflowService: ref.watch(workflowServiceProvider),
-  tokenService: ref.watch(tokenServiceProvider),
-  ref: ref,
-));
+// Single instance of auction service that's kept alive for the entire app session
+final auctionServiceProvider = Provider<AuctionService>((ref) {
+  final service = AuctionService(
+    workflowService: ref.watch(workflowServiceProvider),
+    tokenService: ref.watch(tokenServiceProvider),
+    ref: ref,
+  );
+  
+  ref.onDispose(() {
+    service.dispose();
+  });
+  
+  return service;
+});
 
-// Auctions notifier
-class AuctionsNotifier extends AsyncNotifier<List<Auction>> {
-  final Map<int, List<Auction>> _pageCache = {};
-  int _totalAuctions = 0;
+class AuctionState {
+  final List<Auction>? auctions;
+  final bool isLoading;
+  final String? error;
+  final int totalAuctions;
+  final Map<int, List<Auction>> pageCache;
+
+  const AuctionState({
+    this.auctions,
+    this.isLoading = false,
+    this.error,
+    this.totalAuctions = 0,
+    this.pageCache = const {},
+  });
+
+  AuctionState copyWith({
+    List<Auction>? auctions,
+    bool? isLoading,
+    String? error,
+    int? totalAuctions,
+    Map<int, List<Auction>>? pageCache,
+  }) {
+    return AuctionState(
+      auctions: auctions ?? this.auctions,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+      totalAuctions: totalAuctions ?? this.totalAuctions,
+      pageCache: pageCache ?? this.pageCache,
+    );
+  }
+}
+
+class AuctionStateNotifier extends StateNotifier<AuctionState> {
+  final AuctionService _auctionService;
   StreamSubscription? _refreshSubscription;
-
-  @override
-  Future<List<Auction>> build() async {
-    // Subscribe to auction service updates
-    final auctionService = ref.read(auctionServiceProvider);
-    _refreshSubscription?.cancel();
-    _refreshSubscription = auctionService.dataStream.listen((data) async {
-      print('🔄 Received auction update from service');
-      _clearCache();
-      final auctions = await _loadAuctions(
-        page: 1,
-        isBackgroundRefresh: true,
-      );
-      state = AsyncValue.data(auctions);
-    });
-
-    ref.onDispose(() {
-      _refreshSubscription?.cancel();
-    });
-
-    return _loadAuctions();
+  
+  AuctionStateNotifier(this._auctionService) : super(const AuctionState()) {
+    print('🏗️ Creating AuctionStateNotifier');
+    _initialize();
+    _subscribeToUpdates();
   }
 
-  List<Auction> _getAllCachedAuctions() {
-    final uniqueAuctions = <String, Auction>{};
-    final sortedPages = _pageCache.keys.toList()..sort();
+  void _subscribeToUpdates() {
+    _refreshSubscription?.cancel();
+    _refreshSubscription = _auctionService.dataStream.listen((data) async {
+      print('🔄 Received auction update from service');
+      await _loadAuctions(clearCache: true, isBackgroundRefresh: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _initialize() async {
+    if (!mounted) return;
     
-    // Use a Map to track unique auctions by ID
-    for (final page in sortedPages) {
-      for (final auction in _pageCache[page]!) {
-        uniqueAuctions[auction.id] = auction;
+    try {
+      state = state.copyWith(isLoading: true);
+      
+      // Check if we already have cached auctions from service
+      final cachedData = _auctionService.cachedData;
+      if (cachedData != null) {
+        print('📦 Using cached auctions from service');
+        final pageCache = {1: cachedData.auctions};
+        state = state.copyWith(
+          auctions: cachedData.auctions,
+          totalAuctions: cachedData.total,
+          pageCache: pageCache,
+          isLoading: false,
+        );
+        return;
       }
+      
+      await _loadAuctions();
+    } catch (e) {
+      if (!mounted) return;
+      print('❌ Error initializing auctions: $e');
+      state = state.copyWith(error: e.toString(), isLoading: false);
     }
+  }
+
+  Future<void> _loadAuctions({
+    bool clearCache = false,
+    bool isBackgroundRefresh = false,
+  }) async {
+    if (!mounted) return;
     
-    print('📦 Found ${_pageCache.length} pages with ${uniqueAuctions.length} unique auctions');
-    if (_pageCache.length > 1) {
-      final totalAuctions = _pageCache.values.fold(0, (sum, list) => sum + list.length);
-      final duplicates = totalAuctions - uniqueAuctions.length;
-      if (duplicates > 0) {
-        print('🔍 Removed $duplicates duplicate auctions');
+    try {
+      print('🔄 Starting auction fetch (background: $isBackgroundRefresh)');
+      
+      if (clearCache) {
+        state = state.copyWith(
+          pageCache: {},
+          totalAuctions: 0,
+          isLoading: true,
+        );
+      } else if (state.isLoading) {
+        return; // Prevent multiple simultaneous loads
+      } else {
+        state = state.copyWith(isLoading: true);
+      }
+      
+      // First get total from first page
+      final firstPage = await _auctionService.getAuctions(
+        page: 1,
+        limit: 1000,
+      );
+      
+      if (!mounted) return;
+      
+      final pageCache = {1: firstPage.auctions};
+      final totalPages = (firstPage.total / 1000).ceil();
+      print('📊 Need to fetch $totalPages pages for ${firstPage.total} auctions');
+      
+      // Fetch all remaining pages in parallel
+      if (totalPages > 1) {
+        final futures = List.generate(totalPages - 1, (index) {
+          final pageNum = index + 2; // Start from page 2
+          return _auctionService.getAuctions(
+            page: pageNum,
+            limit: 1000,
+          ).then((result) {
+            if (mounted) {
+              pageCache[pageNum] = result.auctions;
+              print('📥 Got page $pageNum with ${result.auctions.length} auctions');
+            }
+          });
+        });
+        
+        await Future.wait(futures);
+      }
+      
+      if (!mounted) return;
+      
+      // Get all cached auctions and sort them
+      final allAuctions = _getAllAuctions(pageCache);
+      _sortAuctions(allAuctions);
+      
+      state = state.copyWith(
+        auctions: allAuctions,
+        totalAuctions: firstPage.total,
+        pageCache: pageCache,
+        isLoading: false,
+        error: null,
+      );
+      
+      print('✅ Auction load complete with ${allAuctions.length} auctions');
+    } catch (e) {
+      if (!mounted) return;
+      print('❌ Error loading auctions: $e');
+      state = state.copyWith(
+        error: e.toString(),
+        isLoading: false,
+      );
+    }
+  }
+
+  List<Auction> _getAllAuctions(Map<int, List<Auction>> pageCache) {
+    final uniqueAuctions = <String, Auction>{};
+    final sortedPages = pageCache.keys.toList()..sort();
+    
+    for (final page in sortedPages) {
+      for (final auction in pageCache[page]!) {
+        uniqueAuctions[auction.id] = auction;
       }
     }
     
@@ -125,107 +254,65 @@ class AuctionsNotifier extends AsyncNotifier<List<Auction>> {
     });
   }
 
-  void _clearCache() {
-    _pageCache.clear();
-    _totalAuctions = 0;
-  }
-
-  Future<List<Auction>> _loadAuctions({
-    int page = 1,
-    int limit = 1000,
-    String? status,
-    bool isBackgroundRefresh = false,
-  }) async {
-    try {
-      print('🔄 Starting auction fetch (background: $isBackgroundRefresh)');
-      
-      // First get total from first page
-      final firstPage = await ref.read(auctionServiceProvider).getAuctions(
-        page: 1,
-        limit: limit,
-        status: status,
-      );
-      _totalAuctions = firstPage.total;
-      _pageCache[1] = firstPage.auctions;
-      
-      // Calculate total pages needed
-      final totalPages = (_totalAuctions / limit).ceil();
-      print('📊 Need to fetch $totalPages pages for $_totalAuctions auctions');
-      
-      // Fetch all remaining pages in parallel
-      if (totalPages > 1) {
-        final futures = List.generate(totalPages - 1, (index) {
-          final pageNum = index + 2; // Start from page 2
-          return ref.read(auctionServiceProvider).getAuctions(
-            page: pageNum,
-            limit: limit,
-            status: status,
-          ).then((result) {
-            _pageCache[pageNum] = result.auctions;
-            print('📥 Got page $pageNum with ${result.auctions.length} auctions');
-          });
-        });
-        
-        await Future.wait(futures);
-      }
-
-      // Get all cached auctions and sort them
-      final allAuctions = _getAllCachedAuctions();
-      print('📦 Total auctions before sorting: ${allAuctions.length}');
-      _sortAuctions(allAuctions);
-      print('✅ Sorting complete');
-      return allAuctions;
-    } catch (e) {
-      print('❌ Error fetching auctions: $e');
-      rethrow;
-    }
-  }
-
   Future<void> refresh() async {
-    state = const AsyncValue.loading();
-    try {
-      print('🔄 Starting full refresh');
-      _clearCache();
-      final auctions = await _loadAuctions(page: 1);
-      print('✅ Refresh complete with ${auctions.length} auctions');
-      state = AsyncValue.data(auctions);
-    } catch (e, st) {
-      print('❌ Refresh failed: $e');
-      state = AsyncValue.error(e, st);
-    }
+    await _loadAuctions(clearCache: true);
   }
 
   Future<void> refreshAfterBid() async {
-    try {
-      print('🔄 Starting background refresh after bid');
-      // Keep old state while refreshing
-      final oldState = state;
-      _clearCache();
-      final auctions = await _loadAuctions(
-        page: 1,
-        isBackgroundRefresh: true,
-      );
-      print('✅ Got ${auctions.length} auctions in background refresh');
-      state = AsyncValue.data(auctions);
-
-      // Refresh balances
-      final balanceService = ref.read(balanceServiceProvider);
-      await balanceService.getBalances(forceRefresh: true);
-    } catch (e) {
-      print('❌ Background refresh failed: $e');
-    }
+    await refresh();
   }
 
   Future<void> refreshAfterNewAuction() async {
     await refresh();
   }
-
-  Future<void> loadMore() async {
-    // This is now handled by _loadAuctions which loads all pages
-  }
 }
 
-// Auctions provider
-final auctionsProvider = AsyncNotifierProvider<AuctionsNotifier, List<Auction>>(
-  () => AuctionsNotifier(),
-); 
+// State notifier provider that maintains the auction state
+final auctionStateProvider = StateNotifierProvider<AuctionStateNotifier, AuctionState>((ref) {
+  final service = ref.watch(auctionServiceProvider);
+  return AuctionStateNotifier(service);
+});
+
+// Provider for accessing the sorted list of auctions with notifier access
+final auctionsProvider = Provider<AsyncValue<List<Auction>>>((ref) {
+  final state = ref.watch(auctionStateProvider);
+  
+  if (state.isLoading && state.auctions == null) {
+    return const AsyncValue.loading();
+  }
+  
+  if (state.error != null) {
+    return AsyncValue.error(state.error!, StackTrace.current);
+  }
+  
+  if (state.auctions == null) {
+    return const AsyncValue.loading();
+  }
+  
+  return AsyncValue.data(state.auctions!);
+});
+
+// Provider for auction operations
+final auctionsOperationsProvider = Provider<AuctionsOperations>((ref) {
+  final stateNotifier = ref.watch(auctionStateProvider.notifier);
+  return AuctionsOperations(stateNotifier);
+});
+
+// Class to handle auction operations
+class AuctionsOperations {
+  final AuctionStateNotifier _stateNotifier;
+  
+  AuctionsOperations(this._stateNotifier);
+  
+  Future<void> refresh() async {
+    await _stateNotifier.refresh();
+  }
+  
+  Future<void> refreshAfterBid() async {
+    await _stateNotifier.refreshAfterBid();
+  }
+  
+  Future<void> refreshAfterNewAuction() async {
+    await _stateNotifier.refreshAfterNewAuction();
+  }
+} 

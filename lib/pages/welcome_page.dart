@@ -4,6 +4,9 @@ import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../providers/app_init_provider.dart';
+import '../providers/token_provider.dart' hide tokenServiceProvider;
+import '../providers/service_providers.dart';
+import '../providers/creator_provider.dart';
 import 'auctions_page.dart';
 
 class WelcomePage extends ConsumerStatefulWidget {
@@ -55,16 +58,6 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
           _isAuthenticating = false;
           _isAuthenticated = true;
         });
-        
-        // Start loading app data in the background only once after authentication
-        ref.read(appInitProvider.future).catchError((error) {
-          if (mounted) {
-            setState(() {
-              _error = 'Failed to initialize: $error';
-              _isAuthenticated = false;
-            });
-          }
-        });
       }
     } catch (e) {
       if (mounted) {
@@ -97,6 +90,24 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final appInit = ref.watch(appInitProvider);
+    final tokenService = ref.watch(tokenServiceProvider);
+
+    // Check if initialization is complete
+    final tokens = tokenService.cachedTokens;
+    final isInitialized = _isAuthenticated && !_isAuthenticating && appInit.whenOrNull(
+      data: (_) => true,
+      loading: () => false,
+      error: (error, _) {
+        if (mounted && _error == null && error is! AsyncLoading) {
+          setState(() {
+            _error = 'Failed to initialize app: $error';
+            _isAuthenticated = false;
+          });
+        }
+        return false;
+      },
+    ) == true;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -145,113 +156,94 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
                       style: theme.textTheme.headlineLarge?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                        fontSize: 36,
                       ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'The independent fashion marketplace where emerging designers and collectors match.',
+                      'Experience the future of fashion.\nBid on exclusive drops from your favorite creators.',
                       style: theme.textTheme.bodyLarge?.copyWith(
                         color: Colors.white70,
-                        fontSize: 18,
                         height: 1.5,
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 48),
-                    if (_isAuthenticating) ...[
-                      Center(
-                        child: CircularProgressIndicator(
-                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Authenticating...',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ] else if (_error != null) ...[
-                      const Icon(
-                        Icons.error_outline,
-                        color: Color(0xFFEEFC42),
-                        size: 64,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Authentication Error',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 24,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
+                    const SizedBox(height: 32),
+                    if (_error != null) ...[
                       Text(
                         _error!,
                         style: theme.textTheme.bodyLarge?.copyWith(
-                          color: Colors.white70,
-                          fontSize: 18,
-                          height: 1.5,
+                          color: Colors.red,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _retryAuthentication,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFEEFC42),
                           foregroundColor: Colors.black,
-                          disabledBackgroundColor: const Color(0xFFEEFC42).withOpacity(0.3),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 48,
+                            horizontal: 32,
                             vertical: 16,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          textStyle: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
                           ),
                         ),
                         child: const Text('Retry'),
                       ),
+                    ] else if (_isAuthenticating) ...[
+                      const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Connecting to the runway...',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: Colors.white70,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ] else if (!isInitialized) ...[
+                      TweenAnimationBuilder<double>(
+                        tween: Tween<double>(begin: 0, end: 1),
+                        duration: const Duration(seconds: 2),
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: 0.8 + (value * 0.2),
+                            child: const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Preparing your exclusive experience...',
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: Colors.white70,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ] else ...[
                       ElevatedButton(
-                        onPressed: _isAuthenticated ? _navigateToAuctions : null,
+                        onPressed: _navigateToAuctions,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFEEFC42),
                           foregroundColor: Colors.black,
-                          disabledBackgroundColor: const Color(0xFFEEFC42).withOpacity(0.3),
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 48,
+                            horizontal: 32,
                             vertical: 16,
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          textStyle: const TextStyle(
-                            fontSize: 18,
+                          minimumSize: const Size(200, 48),
+                          textStyle: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        child: const Text(
-                          "Let's Pull",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        child: const Text("Let's Pull"),
                       ),
                     ],
-                    const SizedBox(height: 40),
                   ],
                 ),
               ),
