@@ -21,6 +21,10 @@ class Auction {
   final int _decimals;
 
   int get rawCurrentPrice => _rawBasePrice + (currentSupply * _rawPriceIncrement);
+  
+  int get rawPriceIncrement => _rawPriceIncrement;
+
+  int get rawBasePrice => _rawBasePrice;
 
   Auction({
     required this.id,

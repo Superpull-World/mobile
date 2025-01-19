@@ -12,6 +12,62 @@ import '../services/workflow_service.dart';
 import '../services/auth_service.dart';
 import '../services/wallet_service.dart';
 
+class SupplyPainter extends CustomPainter {
+  final int currentSupply;
+  final int minSupply;
+  final int maxSupply;
+
+  SupplyPainter({
+    required this.currentSupply,
+    required this.minSupply,
+    required this.maxSupply,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = min(size.width, size.height) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    // Draw background (max supply)
+    final bgPaint = Paint()
+      ..color = Colors.white.withOpacity(0.1)
+      ..style = PaintingStyle.fill;
+    canvas.drawArc(rect, -pi/2, 2 * pi, true, bgPaint);
+
+    // Draw minimum target section in green
+    if (currentSupply < minSupply) {
+      final minPaint = Paint()
+        ..color = Colors.green.withOpacity(0.24)
+        ..style = PaintingStyle.fill;
+      final minSweep = (minSupply / maxSupply) * 2 * pi;
+      canvas.drawArc(rect, -pi/2, minSweep, true, minPaint);
+    }
+
+    // Draw current supply in yellow
+    if (currentSupply > 0) {
+      final currentPaint = Paint()
+        ..color = const Color(0xFFEEFC42)
+        ..style = PaintingStyle.fill;
+      final currentSweep = (currentSupply / maxSupply) * 2 * pi;
+      canvas.drawArc(rect, -pi/2, currentSweep, true, currentPaint);
+    }
+
+    // Draw center hole
+    final holePaint = Paint()
+      ..color = const Color(0xFF1A1A1A)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, radius * 0.6, holePaint);
+  }
+
+  @override
+  bool shouldRepaint(SupplyPainter oldDelegate) {
+    return oldDelegate.currentSupply != currentSupply ||
+           oldDelegate.minSupply != minSupply ||
+           oldDelegate.maxSupply != maxSupply;
+  }
+}
+
 class AuctionCard extends ConsumerStatefulWidget {
   final Auction auction;
 
@@ -447,6 +503,48 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     }
   }
 
+  Widget _buildSupplyIndicator(double size) {
+    final currentSupply = widget.auction.currentSupply;
+    final minSupply = widget.auction.minimumItems;
+    final maxSupply = widget.auction.maxSupply;
+    final token = ref.watch(tokenByMintProvider(widget.auction.tokenMint));
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        CustomPaint(
+          size: Size(size, size),
+          painter: SupplyPainter(
+            currentSupply: currentSupply,
+            minSupply: minSupply,
+            maxSupply: maxSupply,
+          ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.auction.status,
+              style: TextStyle(
+                color: _getStatusColor(widget.auction.status),
+                fontSize: size * 0.09,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: size * 0.02),
+            Text(
+              '$currentSupply/$maxSupply',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: size * 0.07,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final token = ref.watch(tokenByMintProvider(widget.auction.tokenMint));
@@ -614,59 +712,123 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Stack(
-                        children: [
-                          LinearProgressIndicator(
-                            value: 1.0,
-                            backgroundColor: Colors.grey[800],
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[700]!),
-                          ),
-                          LinearProgressIndicator(
-                            value: widget.auction.minimumItems / widget.auction.maxSupply,
-                            backgroundColor: Colors.transparent,
-                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
-                          ),
-                          LinearProgressIndicator(
-                            value: widget.auction.currentSupply / widget.auction.maxSupply,
-                            backgroundColor: Colors.transparent,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              widget.auction.status == 'Graduated' 
-                                ? Colors.green 
-                                : const Color(0xFFEEFC42),
+                      // Min/Max/Current indicators in compact form
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            // Base price row
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'BASE: ${(widget.auction.rawBasePrice / pow(10, token.decimals)).toStringAsFixed(2)} ${token.symbol}',
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 8),
+                            // Min/Current/Max row
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Min indicator
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'MIN',
+                                      style: TextStyle(
+                                        color: Colors.green,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${((widget.auction.minimumItems * widget.auction.rawBasePrice + 
+                                          (widget.auction.rawPriceIncrement * (widget.auction.minimumItems * (widget.auction.minimumItems - 1)) / 2)) / 
+                                          pow(10, token.decimals)).toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        color: Colors.green,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Current indicator
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'CURRENT',
+                                      style: TextStyle(
+                                        color: const Color(0xFFEEFC42),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${((widget.auction.currentSupply * widget.auction.rawBasePrice + 
+                                          (widget.auction.rawPriceIncrement * (widget.auction.currentSupply * (widget.auction.currentSupply - 1)) / 2)) / 
+                                          pow(10, token.decimals)).toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        color: const Color(0xFFEEFC42),
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Max indicator
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'MAX',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${((widget.auction.maxSupply * widget.auction.rawBasePrice + 
+                                          (widget.auction.rawPriceIncrement * (widget.auction.maxSupply * (widget.auction.maxSupply - 1)) / 2)) / 
+                                          pow(10, token.decimals)).toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '${widget.auction.currentSupply}/${widget.auction.maxSupply} items',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white70,
+                      const SizedBox(height: 16),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final size = constraints.maxWidth * 0.7;
+                          return Center(
+                            child: SizedBox(
+                              height: size,
+                              width: size,
+                              child: _buildSupplyIndicator(size),
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(widget.auction.status).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              widget.auction.status,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: _getStatusColor(widget.auction.status),
-                              ),
-                            ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 16),
                       // Deadline progress indicator
