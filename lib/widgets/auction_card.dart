@@ -6,6 +6,11 @@ import '../models/auction.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
 import '../services/bid_service.dart';
+import '../services/wallet_service.dart';
+import '../providers/wallet_provider.dart';
+import '../services/withdraw_service.dart';
+import '../providers/withdraw_provider.dart';
+import '../services/auth_service.dart';
 
 class SupplyPainter extends CustomPainter {
   final int currentSupply;
@@ -83,6 +88,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
   late final Animation<double> _arrowAnimation;
   late final Animation<double> _fadeAnimation;
   bool _isLoading = false;
+  String? _currentWalletAddress;
 
   @override
   void initState() {
@@ -107,6 +113,29 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
       parent: _arrowAnimationController,
       curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
     ));
+
+    _loadWalletAddress();
+  }
+
+  Future<void> _loadWalletAddress() async {
+    try {
+      final walletService = ref.read(walletProvider);
+      final address = await walletService.getWalletAddress();
+      if (mounted) {
+        setState(() {
+          _currentWalletAddress = address;
+        });
+      }
+    } catch (e) {
+      print('Error loading wallet address: $e');
+    }
+  }
+
+  bool get _isAuthorityAndGraduated {
+    return widget.auction.isGraduated && 
+           _currentWalletAddress != null && 
+           widget.auction.authority == _currentWalletAddress &&
+           double.parse(widget.auction.totalValueLocked) > 0;
   }
 
   @override
@@ -452,6 +481,208 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     );
   }
 
+  Future<void> _showWithdrawConfirmation() async {
+    if (!mounted) return;
+
+    final token = ref.read(tokenByMintProvider(widget.auction.tokenMint));
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Withdraw Auction',
+                  style: TextStyle(
+                    color: Color(0xFFEEFC42),
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEFC42).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Auction Details',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Name',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        widget.auction.name,
+                        style: const TextStyle(
+                          color: Color(0xFFEEFC42),
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Value Locked',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${widget.auction.totalValueLocked} ${token.symbol}',
+                        style: const TextStyle(
+                          color: Color(0xFFEEFC42),
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  // Show loading dialog
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => Center(
+                      child: Card(
+                        color: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: Colors.white.withOpacity(0.1),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'Processing Withdrawal...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+
+                  // Execute withdraw workflow
+                  final withdrawService = ref.read(withdrawServiceProvider(ref));
+                  final authService = AuthService();
+                  final jwt = await authService.getStoredJwt();
+                  if (jwt == null) throw Exception('Please authenticate first');
+                  await withdrawService.withdrawAuction(widget.auction, jwt);
+
+                  if (!mounted) return;
+
+                  // Close loading dialog
+                  Navigator.pop(context);
+                  // Close confirmation dialog
+                  Navigator.pop(context);
+
+                  // Show success message
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Auction withdrawn successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+
+                  // Force refresh providers
+                  await Future.wait([
+                    ref.read(auctionsOperationsProvider).refresh(),
+                    ref.read(tokenStateProvider.notifier).refresh(),
+                  ]);
+                } catch (e) {
+                  if (!mounted) return;
+
+                  // Close loading dialog if open
+                  Navigator.pop(context);
+                  // Close confirmation dialog
+                  Navigator.pop(context);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error processing withdrawal: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEEFC42),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              child: const Text('Confirm Withdrawal'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
       case 'Graduated':
@@ -620,6 +851,43 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                               ),
                             );
                           },
+                        ),
+                      if (_isAuthorityAndGraduated)
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: GestureDetector(
+                            onTap: _showWithdrawConfirmation,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.verified,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Withdraw Now',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       Positioned(
                         top: 16,
