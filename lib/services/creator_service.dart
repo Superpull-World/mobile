@@ -15,6 +15,7 @@ class CreatorService with RefreshManager<List<String>> {
     startPeriodicRefresh(_fetchCreators, interval: refreshInterval);
   }
 
+  @override
   void dispose() {
     stopPeriodicRefresh();
   }

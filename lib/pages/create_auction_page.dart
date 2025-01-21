@@ -7,7 +7,6 @@ import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
-import '../models/token_metadata.dart';
 
 class CreateAuctionPage extends ConsumerStatefulWidget {
   const CreateAuctionPage({super.key});
@@ -33,6 +32,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   String? _selectedTokenMint;
   int? _tokenDecimals;
   String _priceFieldLabel = 'Price';
+  List<Map<String, dynamic>> _creators = [];
 
   @override
   void initState() {
@@ -125,6 +125,16 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
       return;
     }
 
+    if (_creators.isNotEmpty && _getTotalShare() != 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Total creator share must be 100%'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _submissionStatus = 'Authenticating...';
@@ -156,7 +166,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
       });
       // TODO: Implement image upload service
       // For now we'll assume the image is uploaded and we get a URL
-      final imageUrl = 'https://assets.superpull.world/placeholder.png'; // Replace with actual upload
+      const imageUrl = 'https://assets.superpull.world/placeholder.png'; // Replace with actual upload
 
       setState(() {
         _submissionStatus = 'Creating auction...';
@@ -173,6 +183,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         deadline: _saleEndDate!,
         jwt: jwt,
         tokenMint: _selectedTokenMint!,
+        creators: _creators,
         onStatusUpdate: (status) {
           if (!mounted) return;
           setState(() {
@@ -489,6 +500,8 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
                   const SizedBox(height: 24),
                   _buildTokenSelector(),
                   const SizedBox(height: 24),
+                  _buildCreatorsList(),
+                  const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: _submitForm,
                     style: ElevatedButton.styleFrom(
@@ -595,5 +608,155 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         return null;
       },
     );
+  }
+
+  Widget _buildCreatorsList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Creators',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            IconButton(
+              onPressed: _addCreator,
+              icon: const Icon(Icons.add_circle_outline),
+              color: Color(0xFFEEFC42),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ..._creators.asMap().entries.map((entry) {
+          final index = entry.key;
+          final creator = entry.value;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEFC42).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFEEFC42).withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: creator['address'] as String?,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            labelText: 'Wallet Address',
+                            labelStyle: TextStyle(color: Colors.white70),
+                            enabledBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(color: Color(0xFFEEFC42)),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            setState(() {
+                              _creators[index]['address'] = value;
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter a wallet address';
+                            }
+                            if (value.length != 44) {
+                              return 'Invalid Solana wallet address';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 80,
+                        child: TextFormField(
+                          initialValue: creator['share']?.toString() ?? '',
+                          style: const TextStyle(color: Colors.white),
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Share %',
+                            labelStyle: TextStyle(color: Colors.white70),
+                            enabledBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(color: Color(0xFFEEFC42)),
+                            ),
+                          ),
+                          onChanged: (value) {
+                            setState(() {
+                              _creators[index]['share'] = int.tryParse(value) ?? 0;
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Required';
+                            }
+                            final share = int.tryParse(value);
+                            if (share == null || share <= 0 || share > 100) {
+                              return 'Invalid';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _removeCreator(index),
+                        icon: const Icon(Icons.remove_circle_outline),
+                        color: Colors.red,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+        if (_creators.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Total share: ${_getTotalShare()}%',
+            style: TextStyle(
+              color: _getTotalShare() == 100 ? Colors.green : Colors.red,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _addCreator() {
+    setState(() {
+      _creators.add({
+        'address': '',
+        'share': 0,
+      });
+    });
+  }
+
+  void _removeCreator(int index) {
+    setState(() {
+      _creators.removeAt(index);
+    });
+  }
+
+  int _getTotalShare() {
+    return _creators.fold(0, (sum, creator) => sum + (creator['share'] as int? ?? 0));
   }
 } 

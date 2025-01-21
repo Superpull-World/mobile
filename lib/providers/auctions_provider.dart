@@ -2,8 +2,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/auction_service.dart';
-import 'package:superpull_mobile/services/workflow_service.dart';
-import 'package:superpull_mobile/services/token_service.dart';
 import 'package:superpull_mobile/providers/token_provider.dart';
 
 // Single instance of auction service that's kept alive for the entire app session
@@ -198,7 +196,7 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
     final now = DateTime.now();
     
     // Helper function to calculate progress rate (items per hour)
-    double _getProgressRate(Auction auction) {
+    double getProgressRate(Auction auction) {
       // Since we don't have saleStartDate, use time since auction was first seen
       final hoursElapsed = auction.saleEndDate.difference(now).abs().inHours;
       if (hoursElapsed == 0) return 0;
@@ -206,7 +204,7 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
     }
     
     // Helper function to calculate probability score
-    double _getProbabilityScore(Auction auction) {
+    double getProbabilityScore(Auction auction) {
       final isEnded = auction.saleEndDate.isBefore(now);
       
       // Special cases for ended auctions
@@ -222,7 +220,7 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
       final hoursRemaining = auction.saleEndDate.difference(now).inHours;
       if (hoursRemaining <= 0) return -2; // Treat as cancelled
       
-      final progressRate = _getProgressRate(auction);
+      final progressRate = getProgressRate(auction);
       if (progressRate <= 0) return 0.1; // Give some small chance for new auctions
       
       // Calculate remaining items needed
@@ -249,8 +247,8 @@ class AuctionStateNotifier extends StateNotifier<AuctionState> {
 
     // Sort auctions by probability score (higher score = higher priority)
     auctions.sort((a, b) {
-      final scoreA = _getProbabilityScore(a);
-      final scoreB = _getProbabilityScore(b);
+      final scoreA = getProbabilityScore(a);
+      final scoreB = getProbabilityScore(b);
       
       // Sort by score in descending order
       return scoreB.compareTo(scoreA);

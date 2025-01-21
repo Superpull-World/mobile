@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:superpull_mobile/models/token_metadata.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/refresh_manager.dart';

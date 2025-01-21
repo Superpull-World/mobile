@@ -1,7 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/token_metadata.dart';
-import '../services/token_service.dart';
-import 'service_providers.dart';
 import 'token_provider.dart' as token_provider;
 
 class AuctionTokenState {

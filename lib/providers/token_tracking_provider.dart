@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/auction.dart';
-import 'service_providers.dart';
 
 // Create a provider to handle token tracking
 final tokenTrackingProvider = Provider.family<void, Auction>((ref, auction) {

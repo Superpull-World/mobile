@@ -217,8 +217,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     ),
                   ),
                   const Divider(color: Colors.white24),
-                  ListTile(
-                    title: const Text(
+                  const ListTile(
+                    title: Text(
                       'Export Private Key',
                       style: TextStyle(
                         color: Colors.white38,
@@ -226,7 +226,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    trailing: const Icon(
+                    trailing: Icon(
                       Icons.lock,
                       color: Colors.white38,
                     ),

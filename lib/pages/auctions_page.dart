@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auctions_provider.dart';
 import '../providers/token_provider.dart' as token_provider;
-import '../providers/wallet_provider.dart';
 import '../providers/service_providers.dart';
 import '../widgets/auction_card.dart';
 import '../models/auction.dart';
@@ -15,7 +14,6 @@ import 'dart:async';
 import 'dart:math';
 import '../providers/creator_provider.dart';
 import '../providers/token_tracking_provider.dart';
-import '../providers/current_auction_token_provider.dart';
 
 class AuctionsPage extends ConsumerStatefulWidget {
   const AuctionsPage({super.key});
@@ -199,7 +197,7 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
               ),
               IconButton(
                 icon: const Icon(Icons.qr_code),
-                color: Color(0xFFEEFC42),
+                color: const Color(0xFFEEFC42),
                 onPressed: _showQrCode,
               ),
               IconButton(
@@ -521,9 +519,9 @@ class _AuctionsPageState extends ConsumerState<AuctionsPage> with SingleTickerPr
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: Colors.black,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

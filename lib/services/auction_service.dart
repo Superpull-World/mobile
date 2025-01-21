@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
-import 'package:superpull_mobile/models/token_metadata.dart';
 import 'package:superpull_mobile/services/refresh_manager.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/token_service.dart';
@@ -19,7 +17,6 @@ class AuctionListData {
 
 class AuctionService with RefreshManager<AuctionListData> {
   final WorkflowService _workflowService;
-  final TokenService _tokenService;
   final Ref _ref;
   AuctionListData? _cachedData;
 
@@ -28,7 +25,6 @@ class AuctionService with RefreshManager<AuctionListData> {
     required TokenService tokenService,
     required Ref ref,
   }) : _workflowService = workflowService,
-       _tokenService = tokenService,
        _ref = ref {
     // Start periodic refresh every 10 minutes
     startPeriodicRefresh(
@@ -73,9 +69,7 @@ class AuctionService with RefreshManager<AuctionListData> {
               
               // Get token metadata from provider
               final tokenMetadata = _ref.read(tokenByMintProvider(tokenMint));
-              if (tokenMetadata != null) {
-                auctionData['tokenMetadata'] = tokenMetadata.toJson();
-              }
+              auctionData['tokenMetadata'] = tokenMetadata.toJson();
               
               return Auction.fromJson(auctionData);
             }),
@@ -108,6 +102,7 @@ class AuctionService with RefreshManager<AuctionListData> {
     required String jwt,
     required String tokenMint,
     required Function(String) onStatusUpdate,
+    required List<Map<String, dynamic>> creators,
   }) async {
     try {
       final unixTimestamp = deadline.millisecondsSinceEpoch ~/ 1000;
@@ -125,6 +120,7 @@ class AuctionService with RefreshManager<AuctionListData> {
           'deadline': unixTimestamp,
           'jwt': jwt,
           'tokenMint': tokenMint,
+          'creators': creators,
         },
       );
 
@@ -175,7 +171,7 @@ class AuctionService with RefreshManager<AuctionListData> {
           print('❌ Error checking workflow status: $e');
           onStatusUpdate('Failed: $e');
           isComplete = true;
-          throw e;
+          rethrow;
         }
       }
 

@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/token_metadata.dart';
 import 'package:superpull_mobile/services/token_service.dart';
-import 'service_providers.dart' hide tokenServiceProvider;
 import 'token_provider.dart';
 
 final auctionTokenProvider = StateNotifierProvider<CurrentAuctionTokenNotifier, TokenMetadata?>((ref) {

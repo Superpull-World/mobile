@@ -1,10 +1,7 @@
 import 'dart:async';
-import 'dart:math';
-import 'package:solana/solana.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/workflow_service.dart';
 import '../services/wallet_service.dart';
-import '../models/token_metadata.dart';
 import '../models/auction.dart';
 import '../providers/token_provider.dart';
 
@@ -27,9 +24,6 @@ class BidService {
       
       // Get token metadata from provider
       final tokenMetadata = _ref.read(tokenByMintProvider(auction.tokenMint));
-      if (tokenMetadata == null) {
-        throw Exception('Token metadata not found');
-      }
       
       // Calculate the current raw price
       final rawBidAmount = auction.rawCurrentPrice;

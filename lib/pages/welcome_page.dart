@@ -2,11 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
-import '../theme/app_theme.dart';
 import '../providers/app_init_provider.dart';
-import '../providers/token_provider.dart' hide tokenServiceProvider;
 import '../providers/service_providers.dart';
-import '../providers/creator_provider.dart';
 import 'auctions_page.dart';
 
 class WelcomePage extends ConsumerStatefulWidget {

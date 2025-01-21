@@ -1,8 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/auction_service.dart';
-import 'package:superpull_mobile/services/workflow_service.dart';
-import 'package:superpull_mobile/services/token_service.dart';
 import 'package:superpull_mobile/providers/token_provider.dart';
 
 // Service provider

@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/creator_service.dart';
 import '../services/wallet_service.dart';
-import '../services/workflow_service.dart';
 import 'service_providers.dart';
 
 class CreatorState {

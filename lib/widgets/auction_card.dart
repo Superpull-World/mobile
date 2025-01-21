@@ -3,14 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
 import '../models/auction.dart';
-import '../models/token_metadata.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
 import '../services/bid_service.dart';
-import '../theme/app_theme.dart';
-import '../services/workflow_service.dart';
-import '../services/auth_service.dart';
-import '../services/wallet_service.dart';
 
 class SupplyPainter extends CustomPainter {
   final int currentSupply;
@@ -72,9 +67,9 @@ class AuctionCard extends ConsumerStatefulWidget {
   final Auction auction;
 
   const AuctionCard({
-    Key? key,
+    super.key,
     required this.auction,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<AuctionCard> createState() => _AuctionCardState();
@@ -162,7 +157,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
+                    const Text(
                       'Ready to Dream?',
                       style: TextStyle(
                         color: Color(0xFFEEFC42),
@@ -186,9 +181,9 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'Price & Balance',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -198,9 +193,9 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
+                          const Text(
                             'Current Price',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white70,
                               fontSize: 16,
                             ),
@@ -219,9 +214,9 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
+                          const Text(
                             'Current Balance',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white70,
                               fontSize: 16,
                             ),
@@ -240,9 +235,9 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
+                          const Text(
                             'Post-Bid Balance',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white70,
                               fontSize: 16,
                             ),
@@ -276,7 +271,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                           size: 32,
                         ),
                         const SizedBox(height: 12),
-                        Text(
+                        const Text(
                           'Insufficient Balance',
                           style: TextStyle(
                             color: Colors.red,
@@ -332,7 +327,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                           size: 32,
                         ),
                         const SizedBox(height: 12),
-                        Text(
+                        const Text(
                           'Maximum Supply Reached',
                           style: TextStyle(
                             color: Colors.red,
@@ -375,16 +370,16 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                   width: 1,
                                 ),
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
+                              child: const Padding(
+                                padding: EdgeInsets.all(24),
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const CircularProgressIndicator(
+                                    CircularProgressIndicator(
                                       valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
                                     ),
-                                    const SizedBox(height: 16),
-                                    const Text(
+                                    SizedBox(height: 16),
+                                    Text(
                                       'Making it Real...',
                                       style: TextStyle(
                                         color: Colors.white,
@@ -685,7 +680,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              widget.auction.id.substring(0, 4) + '...' + widget.auction.id.substring(widget.auction.id.length - 4),
+                              '${widget.auction.id.substring(0, 4)}...${widget.auction.id.substring(widget.auction.id.length - 4)}',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w500,
                                 color: const Color(0xFFEEFC42),
@@ -744,7 +739,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
+                                    const Text(
                                       'MIN',
                                       style: TextStyle(
                                         color: Colors.green,
@@ -753,10 +748,10 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                       ),
                                     ),
                                     Text(
-                                      '${((widget.auction.minimumItems * widget.auction.rawBasePrice + 
+                                      ((widget.auction.minimumItems * widget.auction.rawBasePrice + 
                                           (widget.auction.rawPriceIncrement * (widget.auction.minimumItems * (widget.auction.minimumItems - 1)) / 2)) / 
-                                          pow(10, token.decimals)).toStringAsFixed(2)}',
-                                      style: TextStyle(
+                                          pow(10, token.decimals)).toStringAsFixed(2),
+                                      style: const TextStyle(
                                         color: Colors.green,
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
@@ -768,20 +763,20 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
-                                    Text(
+                                    const Text(
                                       'CURRENT',
                                       style: TextStyle(
-                                        color: const Color(0xFFEEFC42),
+                                        color: Color(0xFFEEFC42),
                                         fontSize: 12,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                     Text(
-                                      '${((widget.auction.currentSupply * widget.auction.rawBasePrice + 
+                                      ((widget.auction.currentSupply * widget.auction.rawBasePrice + 
                                           (widget.auction.rawPriceIncrement * (widget.auction.currentSupply * (widget.auction.currentSupply - 1)) / 2)) / 
-                                          pow(10, token.decimals)).toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        color: const Color(0xFFEEFC42),
+                                          pow(10, token.decimals)).toStringAsFixed(2),
+                                      style: const TextStyle(
+                                        color: Color(0xFFEEFC42),
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -792,7 +787,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Text(
+                                    const Text(
                                       'MAX',
                                       style: TextStyle(
                                         color: Colors.white70,
@@ -801,10 +796,10 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                       ),
                                     ),
                                     Text(
-                                      '${((widget.auction.maxSupply * widget.auction.rawBasePrice + 
+                                      ((widget.auction.maxSupply * widget.auction.rawBasePrice + 
                                           (widget.auction.rawPriceIncrement * (widget.auction.maxSupply * (widget.auction.maxSupply - 1)) / 2)) / 
-                                          pow(10, token.decimals)).toStringAsFixed(2)}',
-                                      style: TextStyle(
+                                          pow(10, token.decimals)).toStringAsFixed(2),
+                                      style: const TextStyle(
                                         color: Colors.white70,
                                         fontSize: 14,
                                         fontWeight: FontWeight.bold,
