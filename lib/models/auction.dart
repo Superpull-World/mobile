@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:superpull_mobile/models/bid.dart';
+
 class Auction {
   final String id;
   final String name;
@@ -16,6 +18,7 @@ class Auction {
   final String totalValueLocked;
   final String tokenMint;
   final DateTime saleEndDate;
+  final List<Bid> bids;
   final int _rawBasePrice;
   final int _rawPriceIncrement;
   final int _decimals;
@@ -42,6 +45,7 @@ class Auction {
     required this.totalValueLocked,
     required this.tokenMint,
     required this.saleEndDate,
+    required this.bids,
     required int rawBasePrice,
     required int rawPriceIncrement,
     required int decimals,
@@ -77,7 +81,14 @@ class Auction {
       // Convert deadline timestamp to DateTime with fallback
       final deadline = ((json['deadline'] as num?) ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000)).toInt();
       final saleEndDate = DateTime.fromMillisecondsSinceEpoch(deadline * 1000);
-
+      
+      // Parse bids array
+      List<Bid> bids = [];
+      if (json['bids'] != null) {
+        final bidsData = json['bids'] as List<dynamic>;
+        bids = bidsData.map((b) => Bid.fromJson(b as Map<String, dynamic>)).toList();
+      }
+      
       return Auction(
         id: json['address'] as String? ?? '',
         name: json['name'] as String? ?? 'Unnamed Auction',
@@ -97,6 +108,7 @@ class Auction {
         rawBasePrice: rawBasePrice,
         rawPriceIncrement: rawPriceIncrement,
         decimals: decimals,
+        bids: bids,
       );
     } catch (e) {
       print('Error parsing auction: $e');

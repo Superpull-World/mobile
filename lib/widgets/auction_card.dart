@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:math';
 import '../models/auction.dart';
+import '../models/bid.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
 import '../services/bid_service.dart';
@@ -11,6 +12,7 @@ import '../providers/wallet_provider.dart';
 import '../services/withdraw_service.dart';
 import '../providers/withdraw_provider.dart';
 import '../services/auth_service.dart';
+import '../services/refund_service.dart';
 
 class SupplyPainter extends CustomPainter {
   final int currentSupply;
@@ -136,6 +138,25 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
            _currentWalletAddress != null && 
            widget.auction.authority == _currentWalletAddress &&
            double.parse(widget.auction.totalValueLocked) > 0;
+  }
+
+  bool get _isAuctionEnded {
+    return DateTime.now().isAfter(widget.auction.saleEndDate);
+  }
+
+  bool get _canGetRefund {
+    final now = DateTime.now();
+    if (_currentWalletAddress == null) return false;
+    
+    final userBid = widget.auction.bids.firstWhere(
+      (bid) => bid.bidder == _currentWalletAddress,
+      orElse: () => Bid(auction: '', address: '', bidder: '', amount: 0, count: 0),
+    );
+    
+    return now.isAfter(widget.auction.saleEndDate) && 
+           !widget.auction.isGraduated &&
+           userBid.amount > 0 &&
+           userBid.count > 0;
   }
 
   @override
@@ -683,6 +704,211 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     );
   }
 
+  Future<void> _showRefundConfirmation() async {
+    if (!mounted) return;
+
+    final token = ref.read(tokenByMintProvider(widget.auction.tokenMint));
+    final userBid = widget.auction.bids.firstWhere(
+      (bid) => bid.bidder == _currentWalletAddress,
+      orElse: () => Bid(auction: '', address: '', bidder: '', amount: 0, count: 0),
+    );
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Get Refund',
+                  style: TextStyle(
+                    color: Color(0xFFEEFC42),
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEFC42).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Refund Details',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Your Bids',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${userBid.count}',
+                        style: const TextStyle(
+                          color: Color(0xFFEEFC42),
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Refund Amount',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${(userBid.amount / pow(10, token.decimals)).toStringAsFixed(token.decimals).replaceAll(RegExp(r'\.?0+$'), '')} ${token.symbol}',
+                        style: const TextStyle(
+                          color: Color(0xFFEEFC42),
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  // Show loading dialog
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (context) => Center(
+                      child: Card(
+                        color: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: Colors.white.withOpacity(0.1),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'Processing Refund...',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+
+                  // Execute refund workflow
+                  final refundService = RefundService(ref: ref);
+                  final authService = AuthService();
+                  final jwt = await authService.getStoredJwt();
+                  if (jwt == null) throw Exception('Please authenticate first');
+                  await refundService.refundAuction(widget.auction, jwt);
+
+                  if (!mounted) return;
+
+                  // Close loading dialog
+                  Navigator.pop(context);
+                  // Close confirmation dialog
+                  Navigator.pop(context);
+
+                  // Show success message
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Refund processed successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+
+                  // Force refresh providers
+                  await Future.wait([
+                    ref.read(auctionsOperationsProvider).refresh(),
+                    ref.read(tokenStateProvider.notifier).refresh(),
+                  ]);
+                } catch (e) {
+                  if (!mounted) return;
+
+                  // Close loading dialog if open
+                  Navigator.pop(context);
+                  // Close confirmation dialog
+                  Navigator.pop(context);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error processing refund: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEEFC42),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                textStyle: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              child: const Text('Get Refund'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
       case 'Graduated':
@@ -782,22 +1008,22 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     print('  - Found Token: ${token.symbol}');
     
     return GestureDetector(
-      onTap: _showBidConfirmation,
-      onVerticalDragStart: (_) {
+      onTap: _isAuctionEnded ? null : _showBidConfirmation,
+      onVerticalDragStart: _isAuctionEnded ? null : (_) {
         setState(() {
           _isDragging = true;
           _dragExtent = 0;
         });
         _arrowAnimationController.stop();
       },
-      onVerticalDragUpdate: (details) {
+      onVerticalDragUpdate: _isAuctionEnded ? null : (details) {
         if (!_isDragging) return;
         setState(() {
           _dragExtent += details.primaryDelta ?? 0;
           if (_dragExtent < 0) _dragExtent = 0;
         });
       },
-      onVerticalDragEnd: (_) {
+      onVerticalDragEnd: _isAuctionEnded ? null : (_) {
         if (_dragExtent >= _dragThreshold) {
           _showBidConfirmation();
         }
@@ -812,7 +1038,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             clipBehavior: Clip.antiAlias,
-            color: const Color(0xFF1A1A1A),
+            color: _isAuctionEnded ? const Color(0xFF1A1A1A).withOpacity(0.7) : const Color(0xFF1A1A1A),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -889,6 +1115,43 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                             ),
                           ),
                         ),
+                      if (_canGetRefund)
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: GestureDetector(
+                            onTap: _showRefundConfirmation,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.currency_exchange,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Get Refund',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       Positioned(
                         top: 16,
                         right: 16,
@@ -932,7 +1195,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       GestureDetector(
                         onTap: () {
                           final url = 'https://explorer.solana.com/address/${widget.auction.id}';
@@ -941,22 +1204,31 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            const Text(
+                              'Auction ID: ',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.white70,
+                                height: 1,
+                              ),
+                            ),
                             const Icon(
                               Icons.link,
                               size: 16,
                               color: Color(0xFFEEFC42),
                             ),
-                            const SizedBox(width: 4),
                             Text(
                               '${widget.auction.id.substring(0, 4)}...${widget.auction.id.substring(widget.auction.id.length - 4)}',
-                              style: theme.textTheme.bodyMedium?.copyWith(
+                              style: const TextStyle(
+                                fontSize: 14,
                                 fontWeight: FontWeight.w500,
-                                color: const Color(0xFFEEFC42),
+                                color: Color(0xFFEEFC42),
                                 decoration: TextDecoration.underline,
                                 fontFamily: 'monospace',
+                                height: 1,
+                                letterSpacing: 0,
                               ),
                             ),
-                            const SizedBox(width: 4),
                             const Icon(
                               Icons.open_in_new,
                               size: 16,
@@ -965,7 +1237,46 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                           ],
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      if (widget.auction.currentSupply > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.person,
+                                size: 14,
+                                color: Colors.white54,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Your bids: ${widget.auction.currentSupply}',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white54,
+                                  height: 1,
+                                ),
+                              ),
+                              const Text(
+                                ' • ',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white54,
+                                  height: 1,
+                                ),
+                              ),
+                              Text(
+                                'Total: ${(widget.auction.currentSupply * widget.auction.rawBasePrice + (widget.auction.rawPriceIncrement * (widget.auction.currentSupply * (widget.auction.currentSupply - 1)) / 2)) / pow(10, token.decimals)} ${token.symbol}',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white54,
+                                  height: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 4),
                       Text(
                         widget.auction.description,
                         maxLines: 2,
@@ -1128,7 +1439,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                     ],
                   ),
                 ),
-                if (!_isDragging)
+                if (!_isDragging && !_isAuctionEnded)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 8),

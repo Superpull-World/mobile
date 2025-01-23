@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
+import 'package:superpull_mobile/models/bid.dart';
 import 'package:superpull_mobile/services/refresh_manager.dart';
 import 'package:superpull_mobile/services/workflow_service.dart';
 import 'package:superpull_mobile/services/token_service.dart';
+import 'package:superpull_mobile/services/wallet_service.dart';
 import 'package:superpull_mobile/providers/token_provider.dart';
 
 class AuctionListData {
@@ -17,6 +19,8 @@ class AuctionListData {
 
 class AuctionService with RefreshManager<AuctionListData> {
   final WorkflowService _workflowService;
+  final TokenService _tokenService;
+  final WalletService _walletService = WalletService();
   final Ref _ref;
   AuctionListData? _cachedData;
 
@@ -25,6 +29,7 @@ class AuctionService with RefreshManager<AuctionListData> {
     required TokenService tokenService,
     required Ref ref,
   }) : _workflowService = workflowService,
+       _tokenService = tokenService,
        _ref = ref {
     // Start periodic refresh every 10 minutes
     startPeriodicRefresh(
@@ -38,15 +43,21 @@ class AuctionService with RefreshManager<AuctionListData> {
   Future<AuctionListData> getAuctions({
     int page = 1,
     int limit = 10,
+    String? bidderAddress,
     String? status,
   }) async {
     try {
       print('🌐 Executing workflow for page $page (limit: $limit)');
+      
+      // Get wallet address if not provided
+      final walletAddress = bidderAddress ?? await _walletService.getWalletAddress();
+      
       final result = await _workflowService.executeWorkflow(
         'getAuctions',
         {
           'page': page,
           'limit': limit,
+          'bidderAddress': walletAddress,
           if (status != null) 'status': status,
         },
       );
