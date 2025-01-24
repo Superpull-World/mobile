@@ -31,10 +31,10 @@ class AuctionService with RefreshManager<AuctionListData> {
   }) : _workflowService = workflowService,
        _tokenService = tokenService,
        _ref = ref {
-    // Start periodic refresh every 10 minutes
+    // Start periodic refresh every 5 seconds
     startPeriodicRefresh(
       () => getAuctions(page: 1, limit: 10),
-      interval: const Duration(minutes: 10),
+      interval: const Duration(seconds: 10),
     );
   }
 
@@ -68,6 +68,7 @@ class AuctionService with RefreshManager<AuctionListData> {
       while (true) {
         final workflowResult = await _workflowService.queryWorkflow(workflowId, 'auctionsResult');
         final status = workflowResult['queries']?['status'] as String?;
+        final workflowStatus = workflowResult['status']['code'] as int?;
         
         if (status == 'completed') {
           final auctionsList = workflowResult['queries']?['auctionsResult'] as List<dynamic>;
@@ -89,7 +90,7 @@ class AuctionService with RefreshManager<AuctionListData> {
           final listData = AuctionListData(auctions: auctions, total: total);
           _cachedData = listData;
           return listData;
-        } else if (status == 'failed') {
+        } else if (status == 'failed' || workflowStatus != 1) {
           throw Exception('Workflow failed: ${workflowResult['queries']?['error']}');
         }
         

@@ -17,6 +17,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
   bool _isAuthenticating = true;
   bool _isFirstTime = true;
   bool _isAuthenticated = false;
+  bool _hasCompletedFirstInit = false;
   String? _error;
 
   @override
@@ -92,8 +93,19 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
 
     // Check if initialization is complete
     final tokens = tokenService.cachedTokens;
-    final isInitialized = _isAuthenticated && !_isAuthenticating && appInit.whenOrNull(
-      data: (_) => true,
+    final isInitialized = _isAuthenticated && !_isAuthenticating && (_hasCompletedFirstInit || appInit.whenOrNull(
+      data: (_) {
+        if (!_hasCompletedFirstInit) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _hasCompletedFirstInit = true;
+              });
+            }
+          });
+        }
+        return true;
+      },
       loading: () => false,
       error: (error, _) {
         if (mounted && _error == null && error is! AsyncLoading) {
@@ -104,7 +116,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
         }
         return false;
       },
-    ) == true;
+    ) == true);
 
     return Scaffold(
       backgroundColor: Colors.black,

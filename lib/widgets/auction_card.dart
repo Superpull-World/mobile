@@ -860,7 +860,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
 
                   // Close loading dialog
                   Navigator.pop(context);
-                  // Close confirmation dialog
+                  // Close confirmation modal
                   Navigator.pop(context);
 
                   // Show success message
@@ -880,8 +880,6 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                   if (!mounted) return;
 
                   // Close loading dialog if open
-                  Navigator.pop(context);
-                  // Close confirmation dialog
                   Navigator.pop(context);
 
                   ScaffoldMessenger.of(context).showSnackBar(

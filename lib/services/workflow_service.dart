@@ -98,32 +98,57 @@ class WorkflowService {
             headers: {'Content-Type': 'application/json'},
           );
 
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            final queries = data['queries'] as Map<String, dynamic>?;
-            if (queries != null) {
-              final status = queries['status'] as String?;
-              if (status != null) {
-                controller.add(status);
-              }
-            }
+          if (response.statusCode != 200) {
+            controller.addError('Failed to query workflow status: ${response.body}');
+            await controller.close();
+            return;
           }
-        } catch (e) {
-          controller.addError(e);
-        }
 
-        await Future.delayed(const Duration(seconds: 2));
+          final data = json.decode(response.body);
+          final status = data['status']?['name'] as String?;
+          
+          if (kDebugMode) {
+            print('🔄 Workflow Status:');
+            print('  - ID: $workflowId');
+            print('  - Status: $status');
+            print('  - Raw Response: ${response.body}');
+            print('  - Parsed Data: $data');
+            print('  - Status Object: ${data['status']}');
+          }
+          
+          if (status == null) {
+            controller.addError('Invalid workflow status response');
+            await controller.close();
+            return;
+          }
+
+          controller.add(status.toLowerCase());
+
+          // If we reach a terminal state, close the stream
+          if (status.toLowerCase() == 'completed' || status.toLowerCase() == 'failed') {
+            if (kDebugMode) {
+              print('✅ Workflow Completed:');
+              print('  - ID: $workflowId');
+              print('  - Final Status: $status');
+            }
+            await controller.close();
+            return;
+          }
+
+          // Poll every second
+          await Future.delayed(const Duration(seconds: 1));
+        } catch (e) {
+          controller.addError('Error polling workflow status: $e');
+          await controller.close();
+          return;
+        }
       }
     }
 
+    // Start polling
     pollStatus();
 
-    return controller.stream.asBroadcastStream()
-      ..listen(
-        null,
-        onDone: () => controller.close(),
-        cancelOnError: false,
-      );
+    return controller.stream;
   }
 
   Future<Map<String, dynamic>> queryWorkflow(String workflowId, String queryName) async {
