@@ -1250,7 +1250,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'Your bids: ${widget.auction.currentSupply}',
+                                'Your bids: ${widget.auction.bids.isEmpty ? 0 : widget.auction.bids.first.count}',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   color: Colors.white54,
@@ -1266,7 +1266,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                                 ),
                               ),
                               Text(
-                                'Total: ${(widget.auction.currentSupply * widget.auction.rawBasePrice + (widget.auction.rawPriceIncrement * (widget.auction.currentSupply * (widget.auction.currentSupply - 1)) / 2)) / pow(10, token.decimals)} ${token.symbol}',
+                                'Total: ${(widget.auction.bids.isEmpty ? 0 : widget.auction.bids.first.amount) / pow(10, token.decimals)} ${token.symbol}',
                                 style: const TextStyle(
                                   fontSize: 14,
                                   color: Colors.white54,
