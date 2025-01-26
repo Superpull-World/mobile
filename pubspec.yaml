@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.2
   solana: ^0.31.1
-  http: ^1.1.0
+  http: ^1.2.0
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.3.5
   bip39: ^1.0.6
@@ -22,6 +22,8 @@ dependencies:
   freezed_annotation: ^2.4.1
   json_annotation: ^4.8.1
   url_launcher: ^6.2.5
+  http_parser: ^4.0.2
+  path: ^1.8.3
 
 dev_dependencies:
   flutter_test:

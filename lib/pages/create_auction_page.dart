@@ -7,6 +7,7 @@ import '../services/wallet_service.dart';
 import '../services/auth_service.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
+import '../services/upload_service.dart';
 
 class CreateAuctionPage extends ConsumerStatefulWidget {
   const CreateAuctionPage({super.key});
@@ -25,6 +26,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   final _workflowService = WorkflowService();
   final _walletService = WalletService();
   final _authService = AuthService();
+  final _uploadService = UploadService();
   DateTime? _saleEndDate;
   XFile? _imageFile;
   bool _isLoading = false;
@@ -33,6 +35,10 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   int? _tokenDecimals;
   String _priceFieldLabel = 'Price';
   List<Map<String, dynamic>> _creators = [];
+  bool _isUploadingImage = false;
+  String? _uploadedImageUrl;
+  String? _uploadedIpfsUrl;
+  double _uploadProgress = 0;
 
   @override
   void initState() {
@@ -55,7 +61,53 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
     try {
       final XFile? image = await picker.pickImage(source: ImageSource.gallery);
       if (image != null) {
-        setState(() => _imageFile = image);
+        setState(() {
+          _imageFile = image;
+          _isUploadingImage = true;
+          _uploadProgress = 0;
+        });
+
+        // Get JWT for upload
+        final jwt = await _authService.getStoredJwt();
+        if (jwt == null) {
+          throw Exception('Please authenticate first');
+        }
+
+        // Upload the image
+        try {
+          final uploadResponse = await _uploadService.uploadImage(
+            File(_imageFile!.path), 
+            jwt,
+            onProgress: (progress) {
+              setState(() {
+                _uploadProgress = progress;
+              });
+            },
+          );
+
+          print('Image upload response - S3 URL: ${uploadResponse.fileUrl}');
+          print('Image upload response - IPFS URL: ${uploadResponse.ipfsUrl}');
+          print('Image upload response - CID: ${uploadResponse.cid}');
+
+          setState(() {
+            _uploadedImageUrl = uploadResponse.fileUrl;
+            _uploadedIpfsUrl = uploadResponse.ipfsUrl;
+            _isUploadingImage = false;
+          });
+        } catch (e) {
+          setState(() {
+            _imageFile = null;
+            _isUploadingImage = false;
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to upload image: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -97,10 +149,10 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
 
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_imageFile == null) {
+    if (_uploadedIpfsUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select an image'),
+          content: Text('Please select and upload an image'),
           backgroundColor: Colors.red,
         ),
       );
@@ -137,11 +189,10 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
 
     setState(() {
       _isLoading = true;
-      _submissionStatus = 'Authenticating...';
+      _submissionStatus = 'Creating auction...';
     });
 
     try {
-      // Get wallet address and JWT
       final walletAddress = await _walletService.getWalletAddress();
       final jwt = await _authService.getStoredJwt();
       
@@ -154,28 +205,16 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
         setState(() {
           _submissionStatus = 'Re-authenticating...';
         });
-        // Try to authenticate
         final newJwt = await _authService.authenticate();
         if (newJwt == null) {
           throw Exception('Authentication failed');
         }
       }
 
-      setState(() {
-        _submissionStatus = 'Uploading image...';
-      });
-      // TODO: Implement image upload service
-      // For now we'll assume the image is uploaded and we get a URL
-      const imageUrl = 'https://assets.superpull.world/placeholder.png'; // Replace with actual upload
-
-      setState(() {
-        _submissionStatus = 'Creating auction...';
-      });
-
       await ref.read(auctionServiceProvider).createAuction(
         name: _nameController.text,
         description: _descriptionController.text,
-        imageUrl: imageUrl,
+        imageUrl: _uploadedIpfsUrl!,
         price: double.parse(_priceController.text),
         ownerAddress: walletAddress,
         maxSupply: int.parse(_maxSupplyController.text),
@@ -270,40 +309,8 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   GestureDetector(
-                    onTap: _pickImage,
-                    child: Container(
-                      height: 200,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEEFC42).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: _imageFile != null
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              File(_imageFile!.path),
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.add_photo_alternate_outlined,
-                                size: 48,
-                                color: const Color(0xFFEEFC42).withOpacity(0.5),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Add Image',
-                                style: TextStyle(
-                                  color: const Color(0xFFEEFC42).withOpacity(0.5),
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                    ),
+                    onTap: _isUploadingImage ? null : _pickImage,
+                    child: _buildImageWidget(),
                   ),
                   const SizedBox(height: 24),
                   TextFormField(
@@ -758,5 +765,109 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
 
   int _getTotalShare() {
     return _creators.fold(0, (sum, creator) => sum + (creator['share'] as int? ?? 0));
+  }
+
+  Widget _buildImageWidget() {
+    if (_isUploadingImage) {
+      return Container(
+        height: 200,
+        decoration: BoxDecoration(
+          color: const Color(0xFFEEFC42).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (_imageFile != null)
+              Opacity(
+                opacity: 0.5,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(
+                    File(_imageFile!.path),
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                ),
+              ),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: _uploadProgress,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEEFC42)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Uploading... ${(_uploadProgress * 100).toInt()}%',
+                  style: const TextStyle(
+                    color: Color(0xFFEEFC42),
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEFC42).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: _imageFile != null
+        ? Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  File(_imageFile!.path),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+              ),
+              if (_uploadedImageUrl != null)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.check,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+            ],
+          )
+        : Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.add_photo_alternate_outlined,
+                size: 48,
+                color: const Color(0xFFEEFC42).withOpacity(0.5),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Add Image',
+                style: TextStyle(
+                  color: const Color(0xFFEEFC42).withOpacity(0.5),
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+    );
   }
 } 

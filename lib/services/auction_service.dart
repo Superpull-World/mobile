@@ -34,7 +34,7 @@ class AuctionService with RefreshManager<AuctionListData> {
     // Start periodic refresh every 5 seconds
     startPeriodicRefresh(
       () => getAuctions(page: 1, limit: 10),
-      interval: const Duration(seconds: 10),
+      interval: const Duration(seconds: 120),
     );
   }
 

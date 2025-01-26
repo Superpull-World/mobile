@@ -9,6 +9,7 @@ class Auction {
   final String imageUrl;
   final String initialPrice;
   final String currentPrice;
+  final String? metadataUrl;
   final int currentSupply;
   final int maxSupply;
   final int minimumItems;
@@ -34,6 +35,7 @@ class Auction {
     required this.name,
     required this.description,
     required this.imageUrl,
+    this.metadataUrl,
     required this.initialPrice,
     required this.currentPrice,
     required this.currentSupply,
@@ -88,12 +90,25 @@ class Auction {
         final bidsData = json['bids'] as List<dynamic>;
         bids = bidsData.map((b) => Bid.fromJson(b as Map<String, dynamic>)).toList();
       }
+
+      // Get metadata URL from details.content.jsonUrl
+      String? metadataUrl;
+      if (json['details'] != null && json['details']['content'] != null) {
+        metadataUrl = json['details']['content']['json_uri'] as String?;
+      }
+      String? name;
+      String? description;
+      if (json['details'] != null && json['details']['content']['metadata'] != null) {
+        name = json['details']['content']['metadata']['name'] as String?;
+        description = json['details']['content']['metadata']['description'] as String?;
+      }
       
       return Auction(
         id: json['address'] as String? ?? '',
-        name: json['name'] as String? ?? 'Unnamed Auction',
-        description: json['description'] as String? ?? '',
+        name: name ?? 'Unnamed Auction',
+        description: description ?? '',
         imageUrl: json['imageUrl'] as String? ?? '',
+        metadataUrl: metadataUrl,
         initialPrice: basePrice,
         currentPrice: currentPrice,
         currentSupply: currentSupply,
