@@ -32,6 +32,7 @@ dev_dependencies:
   build_runner: ^2.4.7
   freezed: ^2.4.5
   json_serializable: ^6.7.1
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
@@ -39,3 +40,8 @@ flutter:
     - assets/icons/
     - assets/images/
     - assets/images/runway.png
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/appicon.jpeg"

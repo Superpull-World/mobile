@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:superpull_mobile/models/auction.dart';
 import 'package:superpull_mobile/services/auction_service.dart';
 import 'package:superpull_mobile/providers/token_provider.dart';
-import 'package:superpull_mobile/services/wallet_service.dart';
 
 // Single instance of auction service that's kept alive for the entire app session
 final auctionServiceProvider = Provider<AuctionService>((ref) {

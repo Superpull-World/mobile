@@ -34,7 +34,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
   String? _selectedTokenMint;
   int? _tokenDecimals;
   String _priceFieldLabel = 'Price';
-  List<Map<String, dynamic>> _creators = [];
+  final List<Map<String, dynamic>> _creators = [];
   bool _isUploadingImage = false;
   String? _uploadedImageUrl;
   String? _uploadedIpfsUrl;
@@ -635,7 +635,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
             IconButton(
               onPressed: _addCreator,
               icon: const Icon(Icons.add_circle_outline),
-              color: Color(0xFFEEFC42),
+              color: const Color(0xFFEEFC42),
             ),
           ],
         ),
@@ -733,7 +733,7 @@ class _CreateAuctionPageState extends ConsumerState<CreateAuctionPage> {
               ),
             ),
           );
-        }).toList(),
+        }),
         if (_creators.isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(

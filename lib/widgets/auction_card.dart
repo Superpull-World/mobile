@@ -7,9 +7,7 @@ import '../models/bid.dart';
 import '../providers/token_provider.dart';
 import '../providers/auctions_provider.dart';
 import '../services/bid_service.dart';
-import '../services/wallet_service.dart';
 import '../providers/wallet_provider.dart';
-import '../services/withdraw_service.dart';
 import '../providers/withdraw_provider.dart';
 import '../services/auth_service.dart';
 import '../services/refund_service.dart';
@@ -1044,7 +1042,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final token = ref.watch(tokenByMintProvider(widget.auction.tokenMint));
-    final _isAuctionEnded = widget.auction.isEnded;
+    final isAuctionEnded = widget.auction.isEnded;
     
     print('🎨 Building auction card:');
     print('  - Auction ID: ${widget.auction.id}');
@@ -1055,22 +1053,22 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
     print('  - Metadata Image URL: ${_metadataImageUrl ?? 'Not loaded yet'}');
     
     return GestureDetector(
-      onTap: _isAuctionEnded ? null : _showBidConfirmation,
-      onVerticalDragStart: _isAuctionEnded ? null : (_) {
+      onTap: isAuctionEnded ? null : _showBidConfirmation,
+      onVerticalDragStart: isAuctionEnded ? null : (_) {
         setState(() {
           _isDragging = true;
           _dragExtent = 0;
         });
         _arrowAnimationController.stop();
       },
-      onVerticalDragUpdate: _isAuctionEnded ? null : (details) {
+      onVerticalDragUpdate: isAuctionEnded ? null : (details) {
         if (!_isDragging) return;
         setState(() {
           _dragExtent += details.primaryDelta ?? 0;
           if (_dragExtent < 0) _dragExtent = 0;
         });
       },
-      onVerticalDragEnd: _isAuctionEnded ? null : (_) {
+      onVerticalDragEnd: isAuctionEnded ? null : (_) {
         if (_dragExtent >= _dragThreshold) {
           _showBidConfirmation();
         }
@@ -1085,7 +1083,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             clipBehavior: Clip.antiAlias,
-            color: _isAuctionEnded ? const Color(0xFF1A1A1A).withOpacity(0.7) : const Color(0xFF1A1A1A),
+            color: isAuctionEnded ? const Color(0xFF1A1A1A).withOpacity(0.7) : const Color(0xFF1A1A1A),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1477,7 +1475,7 @@ class _AuctionCardState extends ConsumerState<AuctionCard> with SingleTickerProv
                     ),
                   ),
                 ),
-                if (!_isDragging && !_isAuctionEnded)
+                if (!_isDragging && !isAuctionEnded)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 8),

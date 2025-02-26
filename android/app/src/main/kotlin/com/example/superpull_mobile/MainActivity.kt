@@ -1,4 +1,4 @@
-package com.example.superpull_mobile
+package world.superpull.mobile
 
 import io.flutter.embedding.android.FlutterActivity
 
