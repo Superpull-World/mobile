@@ -31,8 +31,9 @@ class CreatorStateNotifier extends StateNotifier<CreatorState> {
   final CreatorService _creatorService;
   
   CreatorStateNotifier(this._creatorService) : super(const CreatorState()) {
-    // Initialize creators on startup
-    initialize();
+    // Don't automatically initialize on creation - this will be done explicitly
+    // in the welcome page after authentication is complete
+    // initialize();
   }
 
   Future<void> initialize() async {

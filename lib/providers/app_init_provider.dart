@@ -4,17 +4,34 @@ import 'creator_provider.dart';
 import 'auctions_provider.dart';
 import 'token_provider.dart' as token_provider;
 
+// Flag to track if app is initialized by welcome page
+final isAuthenticatedProvider = StateProvider<bool>((ref) => false);
+
 final appInitProvider = FutureProvider<void>((ref) async {
-  // First check authentication
-  final authService = ref.watch(authServiceProvider);
-  if (!await authService.isAuthenticated()) {
-    throw Exception('Not authenticated');
+  // Check if already authenticated by welcome page
+  final isAuthenticated = ref.watch(isAuthenticatedProvider);
+  if (!isAuthenticated) {
+    // Attempt authentication as a fallback
+    final authService = ref.watch(authServiceProvider);
+    if (!await authService.isAuthenticated()) {
+      // Add a small delay to allow welcome page authentication to complete
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!await authService.isAuthenticated()) {
+        throw Exception('Not authenticated');
+      }
+    }
   }
 
   // Get JWT
+  final authService = ref.watch(authServiceProvider);
   final jwt = await authService.getStoredJwt();
   if (jwt == null) {
-    throw Exception('No JWT found');
+    // Add a small delay to allow welcome page to store JWT
+    await Future.delayed(const Duration(milliseconds: 500));
+    final retryJwt = await authService.getStoredJwt();
+    if (retryJwt == null) {
+      throw Exception('No JWT found');
+    }
   }
 
   print('🔄 Starting app initialization...');

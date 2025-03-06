@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../providers/app_init_provider.dart';
 import '../providers/service_providers.dart';
 import 'auctions_page.dart';
+import '../providers/creator_provider.dart';
 
 class WelcomePage extends ConsumerStatefulWidget {
   const WelcomePage({super.key});
@@ -48,13 +49,31 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
         if (jwt == null) {
           throw Exception('Authentication failed');
         }
+      } else {
+        // If we already have a valid JWT, fetch it for initialization
+        jwt = await authService.getStoredJwt();
       }
 
+      // Ensure we have a valid JWT before proceeding
+      if (jwt == null) {
+        throw Exception('Authentication failed: No JWT available');
+      }
+      
+      // Update authentication status in the provider
+      ref.read(isAuthenticatedProvider.notifier).state = true;
+      
+      // Important: Make sure creator provider is initialized after we have a valid JWT
+      // This will prevent the race condition
+      if (mounted) {
+        ref.read(creatorStateProvider.notifier).initialize();
+      }
+
+      // Update state
       if (mounted) {
         setState(() {
-          _isFirstTime = !hasJwt;
-          _isAuthenticating = false;
           _isAuthenticated = true;
+          _isAuthenticating = false;
+          _isFirstTime = false;
         });
       }
     } catch (e) {
@@ -62,6 +81,9 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
         setState(() {
           _error = e.toString();
           _isAuthenticating = false;
+          
+          // Ensure authentication status is set to false
+          ref.read(isAuthenticatedProvider.notifier).state = false;
         });
       }
     }
@@ -77,12 +99,51 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
     );
   }
 
-  void _retryAuthentication() {
+  void _retryAuthentication() async {
+    // Reset authentication state
+    ref.read(isAuthenticatedProvider.notifier).state = false;
+    
+    // Reset the app init provider to force it to retry
+    ref.invalidate(appInitProvider);
+    
+    // Reset local state
     setState(() {
       _isAuthenticating = true;
       _error = null;
+      _hasCompletedFirstInit = false;
     });
-    _initialize();
+    
+    try {
+      // Use force reauthentication for a more thorough retry
+      final authService = AuthService();
+      final jwt = await authService.forceReauthenticate();
+      
+      if (jwt == null) {
+        throw Exception('Retry authentication failed');
+      }
+      
+      // Update authentication status in the provider
+      ref.read(isAuthenticatedProvider.notifier).state = true;
+      
+      // Initialize creator service
+      ref.read(creatorStateProvider.notifier).initialize();
+      
+      // Update state
+      if (mounted) {
+        setState(() {
+          _isAuthenticated = true;
+          _isAuthenticating = false;
+          _isFirstTime = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Retry failed: ${e.toString()}';
+          _isAuthenticating = false;
+        });
+      }
+    }
   }
 
   @override
